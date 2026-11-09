@@ -116,7 +116,8 @@ td.n,th.n{text-align:right}
       <h2 id="reviewTitle"></h2>
       <p class="need" id="reviewNote"></p>
       <div id="reviewTable"></div>
-      <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><span class="sub" id="reviewCap"></span></div>
+      <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><button class="sec" id="reviewCopy">이 리스트 복사</button><span class="sub" id="reviewCap"></span></div>
+      <p id="reviewMsg" class="msg hide" style="margin-top:12px"></p>
     </div>
   </section>
 </main>
@@ -670,7 +671,7 @@ async function loadStatus(){
   })]));
   $('backupButtons').replaceChildren(...DATASETS.map(d => {
     const b = el('button', d.label, 'sec');
-    b.onclick = () => downloadCsv(d);
+    b.onclick = () => downloadCsv(d).catch(e => alert(`백업 파일을 만들지 못했어요. 원인: ${e.message}`));
     return b;
   }));
   const recent = uploads.reverse().slice(0, 20);
@@ -814,18 +815,61 @@ async function loadReview(){
   $('reviewTitle').textContent = '계산 중이에요...';
   $('reviewNote').textContent = '';
   $('reviewTable').replaceChildren();
-  const [pos, mapping, product, promo] = await Promise.all(['pos', 'mapping', 'product', 'promo'].map(getAll));
-  reviewLists = reviewData({pos, mapping, product, promo});
-  renderReview();
+  reviewLists = [];
+  reviewMessage('');
+  $('reviewDownload').disabled = $('reviewCopy').disabled = true;
+  try {
+    const [pos, mapping, product, promo] = await Promise.all(['pos', 'mapping', 'product', 'promo'].map(getAll));
+    reviewLists = reviewData({pos, mapping, product, promo});
+    renderReview();
+    $('reviewDownload').disabled = $('reviewCopy').disabled = false;
+  } catch (e) {
+    console.error(e);
+    $('reviewTitle').textContent = '리스트를 계산하지 못했어요';
+    reviewMessage(`원인: ${e.message}`, 'err');
+  }
 }
-$('reviewDownload').onclick = () => {
-  if (!reviewLists.length) return;
-  const url = URL.createObjectURL(new Blob([reviewWorkbook(reviewLists)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `검토리스트_${new Date().toISOString().slice(0, 10)}.xlsx`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+function reviewMessage(message, kind){
+  const m = $('reviewMsg');
+  m.textContent = message;
+  m.className = message ? `msg ${kind}` : 'msg hide';
+}
+function listToTsv(l){
+  const clean = v => String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ');
+  return [l.heads, ...l.rows].map(r => r.map(clean).join('\t')).join('\r\n') + '\r\n';
+}
+const CODE_TIP = '엑셀에서 88코드가 8.8E+12처럼 보이면 그 열의 표시 형식을 "숫자, 소수 0자리"로 바꿔 주세요.';
+$('reviewDownload').onclick = async () => {
+  const btn = $('reviewDownload');
+  btn.disabled = true;
+  reviewMessage('엑셀 파일을 만드는 중이에요...', 'warn');
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const url = URL.createObjectURL(new Blob([reviewWorkbook(reviewLists)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `검토리스트_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    reviewMessage(`다운로드를 시작했어요. 다운로드 폴더를 확인해 주세요. 받아지지 않으면 "이 리스트 복사"를 눌러 엑셀에 붙여넣어 주세요. ${CODE_TIP}`, 'ok');
+  } catch (e) {
+    console.error(e);
+    reviewMessage(`엑셀 파일을 만들지 못했어요. "이 리스트 복사"로 받아 주세요. 원인: ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+};
+$('reviewCopy').onclick = async () => {
+  const l = reviewLists[reviewIndex];
+  if (!l) return;
+  try {
+    await navigator.clipboard.writeText(listToTsv(l));
+    reviewMessage(`${l.name} ${fmt(l.rows.length)}행을 복사했어요. 엑셀에서 Ctrl+V 하세요. ${CODE_TIP}`, 'ok');
+  } catch (e) {
+    reviewMessage(`복사하지 못했어요. 원인: ${e.message}`, 'err');
+  }
 };
 
 const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview']};
