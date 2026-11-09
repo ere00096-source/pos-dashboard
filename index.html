@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>POS 데이터 관리</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2433;--sub:#667085;--line:#e2e5ea;--pri:#1f5fbf;--pri-soft:#e8f0fb;--err:#b42318;--err-soft:#fdecea;--warn:#93600a;--warn-soft:#fdf3dc;--ok:#18794e;--ok-soft:#e3f5ec}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:0 24px;display:flex;align-items:center;gap:32px;height:56px}
+header h1{font-size:17px;margin:0;white-space:nowrap}
+nav{display:flex;gap:4px;height:100%}
+nav button{background:none;border:0;border-bottom:2px solid transparent;padding:0 14px;font:inherit;color:var(--sub);cursor:pointer;white-space:nowrap}
+nav button.on{color:var(--pri);border-color:var(--pri);font-weight:700}
+main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+.notice{color:var(--sub);font-size:13px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 12px}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.tab{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;text-align:left;font:inherit;cursor:pointer;color:inherit}
+.tab.on{border-color:var(--pri);background:var(--pri-soft)}
+.tab b{display:block}
+.tab small{color:var(--sub)}
+.need{color:var(--sub);font-size:13px;margin:0 0 14px}
+.need code{background:#eef0f3;padding:1px 6px;border-radius:4px;font:inherit;color:var(--ink);white-space:nowrap;line-height:2}
+.inputs{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.zone{border:2px dashed #c3c9d3;border-radius:8px;padding:26px 16px;text-align:center;color:var(--sub);cursor:pointer;min-height:120px;display:flex;flex-direction:column;justify-content:center;outline:0}
+.zone:focus,.zone.over{border-color:var(--pri);background:var(--pri-soft);color:var(--pri)}
+.zone b{color:var(--ink);font-size:15px}
+.zone:focus b,.zone.over b{color:var(--pri)}
+button.main{background:var(--pri);color:#fff;border:0;border-radius:6px;padding:9px 18px;font:inherit;font-weight:700;cursor:pointer}
+button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer}
+button.link{background:none;border:0;color:var(--err);font:inherit;font-size:12px;cursor:pointer;padding:0}
+button:disabled{opacity:.5;cursor:default}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+#counts{grid-template-columns:repeat(5,1fr)}
+.stat{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fff}
+.stat span{color:var(--sub);font-size:12px;display:block}
+.stat b{font-size:19px}
+.msg{border-radius:6px;padding:10px 12px;margin:0 0 10px;font-size:13px}
+.msg.err{background:var(--err-soft);color:var(--err)}
+.msg.warn{background:var(--warn-soft);color:var(--warn)}
+.msg.ok{background:var(--ok-soft);color:var(--ok)}
+.msg ul{margin:4px 0 0;padding-left:18px}
+.tbl{overflow:auto;border:1px solid var(--line);border-radius:6px;max-height:430px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}
+th{background:#f6f7f9;position:sticky;top:0;font-weight:700}
+td.n,th.n{text-align:right}
+.actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.actions label{margin-right:8px}
+.hide{display:none!important}
+.spin{color:var(--pri);padding:10px 0}
+.sub{color:var(--sub);font-size:13px}
+@media(max-width:800px){.tabs,.stats,#counts{grid-template-columns:repeat(2,1fr)}.inputs{grid-template-columns:1fr}header{gap:12px;padding:0 16px}main{padding:16px 16px 48px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>POS 데이터 관리</h1>
+  <nav>
+    <button id="navUpload" class="on">데이터 업로드</button>
+    <button id="navStatus">데이터 현황</button>
+  </nav>
+</header>
+<main>
+  <p class="notice">데이터는 지금 사용 중인 브라우저에만 저장되고 외부로 전송되지 않아요. 브라우저 기록(사이트 데이터)을 지우면 함께 지워지니, 데이터 현황에서 백업해 두세요.</p>
+  <section id="viewUpload">
+    <div class="tabs" id="tabs"></div>
+    <div class="card">
+      <h2 id="title"></h2>
+      <p class="need" id="need"></p>
+      <div class="inputs">
+        <div class="zone" id="paste" tabindex="0">
+          <b>여기를 클릭하고 Ctrl+V</b>
+          <span>엑셀에서 제목 행까지 복사해 값으로 붙여넣기</span>
+        </div>
+        <div class="zone" id="drop">
+          <b>엑셀 파일 끌어다 놓기</b>
+          <span>또는 클릭해서 선택 (xlsx, xls, csv)</span>
+        </div>
+      </div>
+      <input type="file" id="file" class="hide" accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv">
+      <div id="busy" class="spin hide">읽는 중이에요. 데이터가 많으면 1~2분 걸릴 수 있어요.</div>
+      <p id="fail" class="msg err hide" style="margin-top:14px"></p>
+    </div>
+    <div class="card hide" id="result">
+      <h2>저장 전 확인</h2>
+      <div class="stats" id="stats"></div>
+      <div id="notes"></div>
+      <div class="tbl"><table id="sample"></table></div>
+      <div class="actions">
+        <span id="modes"></span>
+        <button class="main" id="save"></button>
+        <button class="sec" id="cancel">취소</button>
+      </div>
+    </div>
+    <p id="done" class="msg ok hide"></p>
+  </section>
+
+  <section id="viewStatus" class="hide">
+    <div class="stats" id="counts"></div>
+    <div class="card"><h2>연결 점검</h2><div id="links"></div></div>
+    <div class="card"><h2>POS 적재 현황 (채널 × 월, 건수)</h2><div id="matrix"></div></div>
+    <div class="card"><h2>백업 (CSV 내보내기)</h2><p class="sub">내려받은 파일은 업로드 화면에 그대로 다시 올릴 수 있어요.</p><div class="actions" id="backupButtons"></div></div>
+    <div class="card"><h2>최근 업로드</h2><div id="uploads"></div></div>
+    <div class="card"><h2>채널 기준</h2><div id="channels"></div></div>
+  </section>
+</main>
+
+<script src="xlsx.full.min.js"></script>
+<script>
+'use strict';
+// ---------- 값 정리 ----------
+class RowError extends Error {}
+class UserError extends Error {}
+
+function text(v){
+  if (v == null) return '';
+  return String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+}
+function code(v, label){
+  let s = text(v);
+  if (!s) throw new RowError(`${label} 없음`);
+  if (/^\d+\.0+$/.test(s)) s = s.split('.')[0];
+  if (/^[\d.]+[eE][+-]?\d+$/.test(s)) throw new RowError(`${label}가 지수 표기로 깨짐: ${s}`);
+  if (!/^[0-9A-Za-z_-]+$/.test(s)) throw new RowError(`${label} 형식 오류: ${s}`);
+  return s;
+}
+function number(v, label){
+  if (typeof v === 'number') return v;
+  let s = text(v).replace(/[,₩\s]/g, '');
+  if (s === '') throw new RowError(`${label} 없음`);
+  if (s === '-' || s === '–') return 0;
+  const m = s.match(/^\((\d+(?:\.\d+)?)\)$/);
+  if (m) s = '-' + m[1];
+  if (!/^[+-]?\d+(\.\d+)?$/.test(s)) throw new RowError(`${label} 숫자 아님: ${s}`);
+  return Number(s);
+}
+function integer(v, label){
+  const n = number(v, label);
+  if (!Number.isInteger(n)) throw new RowError(`${label} 정수 아님: ${n}`);
+  return n;
+}
+function makeDate(y, m, d, label){
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) throw new RowError(`${label} 없는 날짜: ${y}-${m}-${d}`);
+  return t.toISOString().slice(0, 10);
+}
+function serialDate(n){
+  return new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000).toISOString().slice(0, 10);
+}
+function fullDate(v){
+  if (typeof v === 'number' && v >= 30000 && v <= 70000) return serialDate(v);
+  const s = text(v);
+  if (/^\d{5}$/.test(s) && +s >= 30000 && +s <= 70000) return serialDate(+s);
+  const m = s.match(/^(\d{4})[-./년 ]+(\d{1,2})[-./월 ]+(\d{1,2})/) || s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  return m ? makeDate(+m[1], +m[2], +m[3], '날짜') : null;
+}
+function monthDay(v, label){
+  const m = text(v).match(/^(\d{1,2})\s*[/.\-월]\s*(\d{1,2})/);
+  if (!m) throw new RowError(`${label} 형식 오류: ${text(v) || '(빈칸)'}`);
+  return [+m[1], +m[2]];
+}
+// '12/31(수)'처럼 연도가 없으면 행사 연월을 기준으로 연도를 정한다
+function promoDates(year, month, rawStart, rawEnd){
+  let start = fullDate(rawStart);
+  if (!start){
+    const [m, d] = monthDay(rawStart, '행사시작일');
+    const y = m - month > 6 ? year - 1 : month - m > 6 ? year + 1 : year;
+    start = makeDate(y, m, d, '행사시작일');
+  }
+  let end = fullDate(rawEnd);
+  if (!end){
+    const [m, d] = monthDay(rawEnd, '행사종료일');
+    const y = +start.slice(0, 4);
+    end = makeDate(y, m, d, '행사종료일');
+    if (end < start) end = makeDate(y + 1, m, d, '행사종료일');
+  }
+  if (end < start) throw new RowError(`종료일이 시작일보다 빠름: ${start} ~ ${end}`);
+  return [start, end];
+}
+const dayCount = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
+
+// ---------- 데이터셋 정의 ----------
+// columns: [키, 헤더, 같은 이름 중 몇 번째, 필수]
+const DATASETS = [
+  {id:'channels', name:'1. 채널 기준', note:'채널과 금액 기준', label:'채널 기준',
+   columns:[['team','팀',0,1],['channel','채널',0,1],['channel2','채널2',0,1],['basis','금액',0,1]],
+   preview:[['채널2','channel2'],['팀','team'],['채널','channel'],['금액 기준','basis']],
+   exportCols:[['팀','team'],['채널','channel'],['채널2','channel2'],['금액','basis']]},
+  {id:'promo', name:'2. 행사차수', note:'채널별 행사 기간', label:'행사차수',
+   columns:[['year','년',0,1],['month','월',0,1],['round','차수',0,1],['start','행사시작일',0,1],['end','행사종료일',0,1],['days','행사기간',0,1],['team','팀',0,1],['channel','채널',0,1],['roundLabel','차수',1,1]],
+   preview:[['년','year'],['월','month'],['차수','round'],['행사시작일','start'],['행사종료일','end'],['행사기간','days'],['팀','team'],['채널','channel'],['차수명','roundLabel']],
+   exportCols:[['년','year'],['월','month'],['차수','round'],['행사시작일','start'],['행사종료일','end'],['행사기간','days'],['팀','team'],['채널','channel'],['차수','roundLabel']]},
+  {id:'mapping', name:'3. 88코드 매칭표', note:'채널별 88코드 ↔ 제품코드', label:'88코드 매칭표',
+   columns:[['team','팀',0,1],['channel','채널',0,1],['channel2','채널2',0,1],['hasPos','POS 발생 유무',0,0],['code88','88코드',0,1],['eanName','EAN제품명',0,0],['productCode','제품코드',0,1],['productName','제품명',0,0]],
+   preview:[['채널2','channel2'],['88코드','code88'],['제품코드','productCode'],['팀','team'],['채널','channel'],['POS발생','hasPos'],['EAN제품명','eanName'],['제품명','productName']],
+   exportCols:[['팀','team'],['채널','channel'],['채널2','channel2'],['POS 발생 유무','hasPos'],['88코드','code88'],['EAN제품명','eanName'],['제품코드','productCode'],['제품명','productName']]},
+  {id:'product', name:'4. 제품분류표', note:'대·소분류, 과세 구분', label:'제품분류표',
+   columns:[['productCode','제품번호',0,1],['productName','제품번호 Name',0,0],['major','대카테고리(기획실)',0,1],['minor','소카테고리(기획실)',0,1],['taxType','과세면세',0,0],['taxFactor','과세면세',1,0]],
+   preview:[['제품번호','productCode'],['제품명','productName'],['대카테고리','major'],['소카테고리','minor'],['과세면세','taxType'],['계수','taxFactor']],
+   exportCols:[['제품번호','productCode'],['제품번호 Name','productName'],['대카테고리(기획실)','major'],['소카테고리(기획실)','minor'],['과세면세','taxType'],['과세면세','taxFactor']]},
+  {id:'pos', name:'5. POS RAW', note:'일자·88코드별 판매', label:'POS RAW',
+   columns:[['team','팀',0,1],['channel','채널',0,1],['date','날짜',0,1],['code88','88코드',0,1],['name','제품명',0,0],['qty','판매수량',0,1],['amount','판매금액',0,1]],
+   preview:[['채널','channel'],['날짜','date'],['88코드','code88'],['팀','team'],['제품명','name'],['판매수량','qty'],['판매금액','amount']],
+   exportCols:[['팀','team'],['채널','channel'],['날짜','date'],['88코드','code88'],['제품명','name'],['판매수량','qty'],['판매금액','amount']]},
+];
+const byId = id => DATASETS.find(d => d.id === id);
+
+const CONVERT = {
+  channels(c){
+    const channel2 = text(c.channel2);
+    if (!channel2) throw new RowError('채널2 없음');
+    const basis = text(c.basis);
+    if (!basis) throw new RowError(`금액 기준 없음: ${channel2}`);
+    return {id: channel2, channel2, team: text(c.team), channel: text(c.channel), basis};
+  },
+  promo(c, ctx){
+    const year = integer(c.year, '년'), month = integer(c.month, '월');
+    if (month < 1 || month > 12) throw new RowError(`월 오류: ${month}`);
+    const [start, end] = promoDates(year, month, c.start, c.end);
+    const days = integer(c.days, '행사기간');
+    const channel = text(c.channel);
+    if (!channel) throw new RowError('채널 없음');
+    const round = text(c.round), roundLabel = text(c.roundLabel);
+    if (dayCount(start, end) !== days) ctx.warn(`행사기간과 시작~종료일의 일수가 다른 행: ${channel} ${roundLabel}`);
+    if (ctx.channels.size && !ctx.channels.has(channel)) ctx.warn(`채널 기준에 없는 채널: ${channel}`);
+    return {id: `${year}|${month}|${round}|${channel}`, year, month, round, start, end, days, team: text(c.team), channel, roundLabel};
+  },
+  mapping(c, ctx){
+    const channel2 = text(c.channel2);
+    if (!channel2) throw new RowError('채널2 없음');
+    if (ctx.channels.size && !ctx.channels.has(channel2)) ctx.warn(`채널 기준에 없는 채널: ${channel2}`);
+    const code88 = code(c.code88, '88코드'), productCode = code(c.productCode, '제품코드');
+    return {id: `${channel2}|${code88}|${productCode}`, channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName)};
+  },
+  product(c){
+    const productCode = code(c.productCode, '제품번호');
+    const f = text(c.taxFactor);
+    return {id: productCode, productCode, productName: text(c.productName), major: text(c.major), minor: text(c.minor), taxType: text(c.taxType), taxFactor: f ? number(f, '과세 계수') : null};
+  },
+  pos(c, ctx){
+    const channel = text(c.channel);
+    if (!ctx.channels.has(channel)) throw new RowError(`등록되지 않은 채널: ${channel || '(빈칸)'}`);
+    if (ctx.channels.get(channel) === 'X') throw new RowError(`POS 관리 제외 채널: ${channel}`);
+    const date = fullDate(c.date);
+    if (!date) throw new RowError(`날짜 형식 오류: ${text(c.date) || '(빈칸)'}`);
+    const code88 = code(c.code88, '88코드');
+    return {id: `${channel}|${date}|${code88}`, channel, date, code88, team: text(c.team), name: text(c.name), qty: number(c.qty, '판매수량'), amount: number(c.amount, '판매금액')};
+  },
+};
+
+// ---------- 입력 읽기: [{name, rows, offset}] ----------
+function parseDelimited(raw, delimiter){
+  const rows = [];
+  let row = [], cell = '', quoted = false, started = false;
+  for (let i = 0; i < raw.length; i++){
+    const ch = raw[i];
+    if (quoted){
+      if (ch === '"'){
+        if (raw[i + 1] === '"'){ cell += '"'; i++; }
+        else quoted = false;
+      } else cell += ch;
+      continue;
+    }
+    if (ch === '"' && cell === ''){ quoted = true; started = true; }
+    else if (ch === delimiter){ row.push(cell); cell = ''; started = true; }
+    else if (ch === '\n' || ch === '\r'){
+      if (ch === '\r' && raw[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row);
+      row = []; cell = ''; started = false;
+    } else { cell += ch; started = true; }
+  }
+  if (started || cell) { row.push(cell); rows.push(row); }
+  return rows;
+}
+function textSheets(raw, name, delimiter){
+  if (!delimiter){
+    const first = raw.split('\n', 1)[0];
+    delimiter = first.includes('\t') ? '\t' : ',';
+  }
+  return [{name, rows: parseDelimited(raw, delimiter), offset: 0}];
+}
+function decodeBytes(buf){
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(buf).replace(/^﻿/, ''); }
+  catch { return new TextDecoder('euc-kr').decode(buf); }
+}
+const DRM_HINT = '파일을 열지 못했어요. 암호나 보안(DRM)이 걸린 파일일 수 있어요. 엑셀에서 열어 복사한 뒤 붙여넣기로 올려 주세요.';
+async function fileSheets(file){
+  const lower = file.name.toLowerCase();
+  const buf = await file.arrayBuffer();
+  if (/\.(csv|txt|tsv)$/.test(lower)) return textSheets(decodeBytes(buf), file.name);
+  if (!/\.(xlsx|xlsm|xls)$/.test(lower)) throw new UserError('xlsx, xls, csv 파일만 올릴 수 있어요.');
+  const head = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
+  if (/\.(xlsx|xlsm)$/.test(lower) && !(head[0] === 0x50 && head[1] === 0x4b)) throw new UserError(DRM_HINT);
+  let wb;
+  try { wb = XLSX.read(new Uint8Array(buf), {type: 'array', dense: true}); }
+  catch { throw new UserError(DRM_HINT); }
+  const out = [];
+  for (const name of wb.SheetNames){
+    const ws = wb.Sheets[name];
+    if (!ws || !ws['!ref']) continue;
+    out.push({name, rows: XLSX.utils.sheet_to_json(ws, {header: 1, raw: true, defval: null, blankrows: true}), offset: XLSX.utils.decode_range(ws['!ref']).s.r});
+  }
+  if (!out.length) throw new UserError(DRM_HINT);
+  return out;
+}
+
+// ---------- 행 변환 ----------
+const normHeader = v => text(v).replace(/\s+/g, '').toLowerCase();
+function locateColumns(row, ds){
+  const pos = new Map();
+  row.forEach((cell, i) => {
+    const k = normHeader(cell);
+    if (!pos.has(k)) pos.set(k, []);
+    pos.get(k).push(i);
+  });
+  const found = {};
+  for (const [key, header, nth, required] of ds.columns){
+    const spots = pos.get(normHeader(header)) || [];
+    if (spots.length > nth) found[key] = spots[nth];
+    else if (required) return null;
+  }
+  return found;
+}
+function parseRows(ds, sheets, channels){
+  const warnings = new Map();
+  const ctx = {channels, warn: (m, n = 1) => warnings.set(m, (warnings.get(m) || 0) + n)};
+  const convert = CONVERT[ds.id];
+  const rows = [], errors = [], used = [];
+  let errorTotal = 0, firstSeen = null;
+  for (const sheet of sheets){
+    let cols = null;
+    for (let i = 0; i < sheet.rows.length; i++){
+      const row = sheet.rows[i] || [];
+      if (!row.some(x => text(x))) continue;
+      const rowNo = i + 1 + sheet.offset;
+      if (!cols){
+        if (!firstSeen) firstSeen = row.slice(0, 12).map(text);
+        cols = locateColumns(row, ds);
+        if (!cols && rowNo >= 30) break;
+        if (cols) used.push(sheet.name);
+        continue;
+      }
+      const c = {};
+      for (const k in cols) c[k] = row[cols[k]];
+      try { rows.push(convert(c, ctx)); }
+      catch (e) {
+        if (!(e instanceof RowError)) throw e;
+        errorTotal++;
+        if (errors.length < 30) errors.push({sheet: sheet.name, row: rowNo, message: e.message});
+      }
+    }
+  }
+  if (!used.length){
+    const need = ds.columns.filter(c => c[3]).map(c => c[1]).join(', ');
+    throw new UserError(`제목 행을 찾지 못했어요. 필요한 열: ${need} / 받은 첫 줄: ${firstSeen ? firstSeen.join(', ') : '(내용 없음)'}`);
+  }
+  return {rows, errors, errorTotal, used, ctx, warnings};
+}
+function dedupe(ds, rows, ctx){
+  const map = new Map();
+  let same = 0, conflict = 0, merged = 0;
+  for (const r of rows){
+    const old = map.get(r.id);
+    if (!old){ map.set(r.id, r); continue; }
+    if (ds.id === 'pos'){ old.qty += r.qty; old.amount += r.amount; merged++; }
+    else if (JSON.stringify(old) === JSON.stringify(r)) same++;
+    else conflict++;
+  }
+  if (merged) ctx.warn('같은 채널·날짜·88코드가 반복되어 수량과 금액을 합친 행 (같은 자료를 두 번 붙여넣었다면 취소하세요)', merged);
+  if (same) ctx.warn('완전히 같은 중복 행을 1개로 정리', same);
+  if (conflict) ctx.warn('같은 키인데 내용이 다른 행 (첫 행만 사용)', conflict);
+  return [...map.values()];
+}
+function overlapWarnings(ds, rows, ctx){
+  if (ds.id === 'promo'){
+    const per = new Map();
+    for (const r of rows){
+      if (!per.has(r.channel)) per.set(r.channel, []);
+      per.get(r.channel).push(r);
+    }
+    for (const [channel, list] of per){
+      list.sort((a, b) => a.start < b.start ? -1 : 1);
+      for (let i = 1; i < list.length; i++){
+        if (list[i].start <= list[i - 1].end) ctx.warn(`행사 기간이 겹침: ${channel} ${list[i - 1].roundLabel}와 ${list[i].roundLabel}`);
+      }
+    }
+  } else if (ds.id === 'mapping'){
+    const count = new Map();
+    for (const r of rows){
+      const k = r.channel2 + '|' + r.code88;
+      count.set(k, (count.get(k) || 0) + 1);
+    }
+    let multi = 0;
+    for (const n of count.values()) if (n > 1) multi++;
+    if (multi) ctx.warn('한 채널에서 같은 88코드에 제품코드가 여러 개인 경우 (이후 검토 리스트 대상)', multi);
+  }
+}
+
+// ---------- 저장소 ----------
+const STORES = DATASETS.map(d => d.id);
+let dbPromise;
+function db(){
+  if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open('pos-data', 1);
+    req.onupgradeneeded = () => {
+      for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
+      req.result.createObjectStore('uploads', {keyPath: 'seq', autoIncrement: true});
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(new UserError('브라우저 저장소를 열 수 없어요. 시크릿 창이거나 사이트 데이터가 차단된 상태일 수 있어요.'));
+  });
+  return dbPromise;
+}
+const wrap = req => new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); });
+async function getAll(store){ return wrap((await db()).transaction(store).objectStore(store).getAll()); }
+async function getAllKeys(store){ return wrap((await db()).transaction(store).objectStore(store).getAllKeys()); }
+async function count(store){ return wrap((await db()).transaction(store).objectStore(store).count()); }
+
+function saveRows(ds, rows, mode, source){
+  return db().then(conn => new Promise((resolve, reject) => {
+    const tx = conn.transaction([ds.id, 'uploads'], 'readwrite');
+    const st = tx.objectStore(ds.id);
+    if (mode === 'replace') st.clear();
+    for (const r of rows) st.put(r);
+    tx.objectStore('uploads').add({ts: new Date().toISOString(), dataset: ds.id, source, rows: rows.length, mode});
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(new UserError(tx.error && tx.error.name === 'QuotaExceededError' ? '브라우저 저장 용량이 부족해요. 저장되지 않았어요.' : '저장하지 못했어요. 아무것도 변경되지 않았어요.'));
+  }));
+}
+function deleteMonth(channel, month){
+  return db().then(conn => new Promise((resolve, reject) => {
+    const tx = conn.transaction('pos', 'readwrite');
+    tx.objectStore('pos').delete(IDBKeyRange.bound(`${channel}|${month}-`, `${channel}|${month}-￿`));
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error);
+  }));
+}
+
+// ---------- CSV 내보내기 ----------
+function toCsv(ds, rows){
+  const q = v => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const lines = [ds.exportCols.map(c => q(c[0])).join(',')];
+  for (const r of rows) lines.push(ds.exportCols.map(c => q(r[c[1]])).join(','));
+  return lines.join('\r\n') + '\r\n';
+}
+async function downloadCsv(ds){
+  const csv = '﻿' + toCsv(ds, await getAll(ds.id));
+  const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${ds.label}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ---------- 화면 ----------
+const $ = id => document.getElementById(id);
+const fmt = n => n == null ? '' : Number(n).toLocaleString('ko-KR');
+let current = DATASETS[0], preview = null;
+
+function el(tag, content, cls){
+  const e = document.createElement(tag);
+  if (content != null) e.textContent = content;
+  if (cls) e.className = cls;
+  return e;
+}
+function table(host, heads, rows, numeric){
+  const t = host.tagName === 'TABLE' ? host : el('table');
+  t.replaceChildren();
+  const hr = el('tr');
+  heads.forEach((h, i) => hr.append(el('th', h, numeric && numeric(i) ? 'n' : '')));
+  const thead = el('thead'); thead.append(hr);
+  const tb = el('tbody');
+  for (const r of rows){
+    const tr = el('tr');
+    r.forEach((v, i) => {
+      if (v instanceof Node){ const td = el('td'); td.append(v); tr.append(td); }
+      else tr.append(el('td', v == null ? '' : v, numeric && numeric(i) ? 'n' : ''));
+    });
+    tb.append(tr);
+  }
+  t.append(thead, tb);
+  if (host.tagName !== 'TABLE'){ const w = el('div', null, 'tbl'); w.append(t); host.replaceChildren(w); }
+}
+function clearResult(){
+  preview = null;
+  $('result').classList.add('hide');
+  $('fail').classList.add('hide');
+}
+function renderTabs(){
+  $('tabs').replaceChildren(...DATASETS.map(d => {
+    const b = el('button', null, 'tab' + (d === current ? ' on' : ''));
+    b.append(el('b', d.name), el('small', d.note));
+    b.onclick = () => { current = d; clearResult(); $('done').classList.add('hide'); renderTabs(); };
+    return b;
+  }));
+  $('title').textContent = current.name + ' 올리기';
+  const need = $('need');
+  need.replaceChildren('첫 줄에 필요한 제목: ');
+  for (const c of current.columns) need.append(el('code', c[1]), ' ');
+}
+
+async function ingest(getSheets, source){
+  clearResult();
+  $('done').classList.add('hide');
+  $('busy').classList.remove('hide');
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const ds = current;
+    const channelRows = await getAll('channels');
+    if (ds.id === 'pos' && !channelRows.length) throw new UserError('먼저 "1. 채널 기준"을 올려 주세요.');
+    const channels = new Map(channelRows.map(c => [c.channel2, c.basis]));
+    const sheets = await getSheets();
+    const parsed = parseRows(ds, sheets, channels);
+    const total = parsed.rows.length + parsed.errorTotal;
+    const rows = dedupe(ds, parsed.rows, parsed.ctx);
+    overlapWarnings(ds, rows, parsed.ctx);
+    const keys = new Set(await getAllKeys(ds.id));
+    let overlap = 0;
+    for (const r of rows) if (keys.has(r.id)) overlap++;
+    preview = {ds, rows, source, sheets: parsed.used, total, errors: parsed.errors, errorTotal: parsed.errorTotal, warnings: [...parsed.warnings], existing: keys.size, overlap};
+    showPreview();
+  } catch (e) {
+    if (!(e instanceof UserError)) console.error(e);
+    $('fail').textContent = e instanceof UserError ? e.message : `처리 중 오류가 났어요: ${e.message}`;
+    $('fail').classList.remove('hide');
+  } finally {
+    $('busy').classList.add('hide');
+  }
+}
+function showPreview(){
+  const p = preview, ds = p.ds;
+  const box = (l, v) => { const d = el('div', null, 'stat'); d.append(el('span', l), el('b', v)); return d; };
+  $('stats').replaceChildren(box('읽은 행', fmt(p.total)), box('저장 가능', fmt(p.rows.length)), box('오류로 제외', fmt(p.errorTotal)), box('기존 데이터와 겹침', fmt(p.overlap)));
+  const notes = $('notes');
+  notes.replaceChildren();
+  if (p.source !== '붙여넣기') notes.append(el('p', `읽은 곳: ${p.source} (${p.sheets.join(', ')})`, 'sub'));
+  if (p.errorTotal){
+    const m = el('div', `오류 ${fmt(p.errorTotal)}건은 저장되지 않아요.`, 'msg err');
+    const ul = el('ul');
+    for (const e of p.errors) ul.append(el('li', `${e.sheet !== '붙여넣기' ? e.sheet + ' ' : ''}${e.row}행: ${e.message}`));
+    if (p.errorTotal > p.errors.length) ul.append(el('li', `외 ${fmt(p.errorTotal - p.errors.length)}건`));
+    m.append(ul); notes.append(m);
+  }
+  if (p.warnings.length){
+    const m = el('div', '확인해 주세요.', 'msg warn');
+    const ul = el('ul');
+    p.warnings.slice(0, 30).forEach(([msg, n]) => ul.append(el('li', `${msg}: ${fmt(n)}건`)));
+    if (p.warnings.length > 30) ul.append(el('li', `외 ${fmt(p.warnings.length - 30)}종류`));
+    m.append(ul); notes.append(m);
+  }
+  const numeric = ds.id === 'pos' ? i => i >= 5 : null;
+  table($('sample'), ds.preview.map(c => c[0]), p.rows.slice(0, 15).map(r => ds.preview.map((c, i) => numeric && numeric(i) ? fmt(r[c[1]]) : r[c[1]])), numeric);
+  const modes = $('modes');
+  modes.replaceChildren();
+  if (ds.id !== 'pos'){
+    const opt = (v, t, on) => {
+      const l = el('label'), r = el('input');
+      r.type = 'radio'; r.name = 'mode'; r.value = v; r.checked = on;
+      l.append(r, ' ' + t);
+      return l;
+    };
+    modes.append(opt('merge', `추가·수정 (기존 ${fmt(p.existing)}건 유지)`, true), opt('replace', '전체 교체 (기존 데이터 삭제)', false));
+  } else if (p.overlap) {
+    modes.append(el('span', `겹치는 ${fmt(p.overlap)}건은 새 값으로 바뀝니다.`, 'sub'));
+  }
+  $('save').textContent = p.errorTotal ? `오류 제외하고 ${fmt(p.rows.length)}건 저장` : `${fmt(p.rows.length)}건 저장`;
+  $('save').disabled = !p.rows.length;
+  $('result').classList.remove('hide');
+  $('result').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+$('save').onclick = async () => {
+  if (!preview) return;
+  const p = preview;
+  const mode = (document.querySelector('input[name=mode]:checked') || {}).value || 'merge';
+  if (mode === 'replace' && !confirm(`${p.ds.label}의 기존 ${fmt(p.existing)}건을 지우고 이 데이터로 바꿀까요?`)) return;
+  $('save').disabled = true;
+  try {
+    await saveRows(p.ds, p.rows, mode, p.source);
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+    clearResult();
+    $('done').textContent = `${p.ds.label} ${fmt(p.rows.length)}건을 저장했어요.`;
+    $('done').classList.remove('hide');
+  } catch (e) {
+    $('fail').textContent = e.message;
+    $('fail').classList.remove('hide');
+    $('save').disabled = false;
+  }
+};
+$('cancel').onclick = clearResult;
+
+// 붙여넣기: 큰 데이터도 화면이 멈추지 않도록 칸에 그리지 않고 바로 읽는다
+$('paste').addEventListener('click', () => $('paste').focus());
+document.addEventListener('paste', e => {
+  if ($('viewUpload').classList.contains('hide')) return;
+  const raw = e.clipboardData.getData('text/plain');
+  if (!raw.trim()) return;
+  e.preventDefault();
+  ingest(async () => textSheets(raw, '붙여넣기', '\t'), '붙여넣기');
+});
+const takeFile = f => { if (f) ingest(() => fileSheets(f), f.name); };
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = e => { takeFile(e.target.files[0]); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => takeFile(e.dataTransfer.files[0]));
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+
+async function loadStatus(){
+  const [counts, pos, mapping, product, channels, uploads] = await Promise.all([
+    Promise.all(DATASETS.map(d => count(d.id))), getAll('pos'), getAll('mapping'), getAll('product'), getAll('channels'), getAll('uploads'),
+  ]);
+  $('counts').replaceChildren(...DATASETS.map((d, i) => {
+    const b = el('div', null, 'stat');
+    b.append(el('span', d.label), el('b', fmt(counts[i]) + '건'));
+    return b;
+  }));
+  const mapped = new Set(mapping.map(m => m.channel2 + '|' + m.code88));
+  const known = new Set(product.map(p => p.productCode));
+  const posCodes = new Set(pos.map(p => p.channel + '|' + p.code88));
+  let unmatched = 0;
+  for (const k of posCodes) if (!mapped.has(k)) unmatched++;
+  const unclassified = new Set(mapping.filter(m => !known.has(m.productCode)).map(m => m.productCode)).size;
+  let min = null, max = null;
+  const cells = new Map();
+  for (const p of pos){
+    if (!min || p.date < min) min = p.date;
+    if (!max || p.date > max) max = p.date;
+    const k = p.channel + '|' + p.date.slice(0, 7);
+    cells.set(k, (cells.get(k) || 0) + 1);
+  }
+  $('links').replaceChildren(
+    el('p', `POS 기간: ${min ? min + ' ~ ' + max : '아직 없음'}`),
+    el('p', `매칭표에 없는 POS 88코드: ${fmt(unmatched)}개 (채널별 코드 기준)`),
+    el('p', `제품분류표에 없는 제품코드: ${fmt(unclassified)}개`),
+  );
+  const months = [...new Set([...cells.keys()].map(k => k.split('|')[1]))].sort();
+  const chans = [...new Set([...cells.keys()].map(k => k.split('|')[0]))].sort();
+  if (!months.length) $('matrix').replaceChildren(el('p', '아직 올린 POS가 없어요.', 'sub'));
+  else table($('matrix'), ['채널', ...months], chans.map(c => [c, ...months.map(m => {
+    const n = cells.get(c + '|' + m);
+    if (!n) return '';
+    const w = el('span'), del = el('button', '삭제', 'link');
+    del.onclick = async () => {
+      if (!confirm(`${c} ${m} POS ${fmt(n)}건을 삭제할까요?`)) return;
+      await deleteMonth(c, m);
+      loadStatus();
+    };
+    w.append(fmt(n) + ' ', del);
+    return w;
+  })]));
+  $('backupButtons').replaceChildren(...DATASETS.map(d => {
+    const b = el('button', d.label, 'sec');
+    b.onclick = () => downloadCsv(d);
+    return b;
+  }));
+  const recent = uploads.reverse().slice(0, 20);
+  if (!recent.length) $('uploads').replaceChildren(el('p', '아직 업로드 기록이 없어요.', 'sub'));
+  else table($('uploads'), ['시간', '종류', '출처', '건수', '방식'], recent.map(u => [new Date(u.ts).toLocaleString('ko-KR'), byId(u.dataset).label, u.source, fmt(u.rows), u.mode === 'replace' ? '전체 교체' : '추가·수정']), i => i === 3);
+  if (!channels.length) $('channels').replaceChildren(el('p', '아직 올린 채널 기준이 없어요.', 'sub'));
+  else table($('channels'), ['팀', '채널', '채널2', '금액 기준'], channels.map(c => [c.team, c.channel, c.channel2, c.basis === 'X' ? '관리 제외' : c.basis]));
+}
+function show(view){
+  const up = view === 'upload';
+  $('viewUpload').classList.toggle('hide', !up);
+  $('viewStatus').classList.toggle('hide', up);
+  $('navUpload').classList.toggle('on', up);
+  $('navStatus').classList.toggle('on', !up);
+  if (!up) loadStatus();
+}
+$('navUpload').onclick = () => show('upload');
+$('navStatus').onclick = () => show('status');
+renderTabs();
+</script>
+</body>
+</html>
