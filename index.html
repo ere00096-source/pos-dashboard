@@ -460,14 +460,36 @@ function toCsv(ds, rows){
   for (const r of rows) lines.push(ds.exportCols.map(c => q(r[c[1]])).join(','));
   return lines.join('\r\n') + '\r\n';
 }
-async function downloadCsv(ds){
-  const csv = '﻿' + toCsv(ds, await getAll(ds.id));
-  const url = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8'}));
+// 저장 창을 먼저 쓴다. 브라우저 다운로드 기능이 막힌 PC에서도 파일을 직접 쓸 수 있다.
+// 결과: 'saved'(저장 창), 'downloaded'(다운로드), 'cancelled'(사용자 취소)
+async function saveFile(name, type, ext, make){
+  if (window.showSaveFilePicker){
+    let handle = null;
+    try {
+      handle = await window.showSaveFilePicker({suggestedName: name, types: [{description: ext.slice(1).toUpperCase() + ' 파일', accept: {[type]: [ext]}}]});
+    } catch (e) {
+      if (e.name === 'AbortError') return 'cancelled';
+    }
+    if (handle){
+      const blob = new Blob([await make()], {type});
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+      return 'saved';
+    }
+  }
+  const url = URL.createObjectURL(new Blob([await make()], {type}));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${ds.label}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = name;
+  document.body.append(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return 'downloaded';
+}
+async function downloadCsv(ds){
+  await saveFile(`${ds.label}_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv', '.csv', async () => '﻿' + toCsv(ds, await getAll(ds.id)));
 }
 
 // ---------- 화면 ----------
@@ -703,28 +725,21 @@ function reviewData({pos, mapping, product, promo}){
 
   // 1. 리뉴얼 코드: 같은 88코드가 제품코드 여러 개로 잡힘
   const by88 = new Map();
+  const perChannel = new Map();
   for (const m of mapping){
-    if (!by88.has(m.code88)) by88.set(m.code88, new Map());
-    const codes = by88.get(m.code88);
-    if (!codes.has(m.productCode)) codes.set(m.productCode, {m, channels: new Set()});
-    codes.get(m.productCode).channels.add(m.channel2);
+    if (!by88.has(m.code88)) by88.set(m.code88, new Set());
+    by88.get(m.code88).add(m.productCode);
+    const k = m.channel2 + '|' + m.code88;
+    perChannel.set(k, (perChannel.get(k) || 0) + 1);
   }
   const renewal = [];
-  for (const [code88, codes] of by88){
-    if (codes.size < 2) continue;
-    const seen = new Map();
-    for (const {channels} of codes.values()) for (const c of channels) seen.set(c, (seen.get(c) || 0) + 1);
-    for (const [productCode, {m, channels}] of codes){
-      let qty = 0, last = '';
-      for (const c of channels){
-        const e = posByCode.get(c + '|' + code88);
-        if (e){ qty += e.qty; if (e.last > last) last = e.last; }
-      }
-      const dup = [...channels].some(c => seen.get(c) > 1);
-      renewal.push([code88, m.eanName, productCode, m.productName, [...channels].sort().join(', '), dup ? 'Y' : '', qty, last]);
-    }
+  for (const m of mapping){
+    if (by88.get(m.code88).size < 2) continue;
+    const k = m.channel2 + '|' + m.code88;
+    const e = posByCode.get(k);
+    renewal.push([m.code88, m.eanName, m.productCode, m.productName, m.channel2, perChannel.get(k) > 1 ? 'Y' : '', e ? e.qty : 0, e ? e.last : '']);
   }
-  renewal.sort(cmp(r => r[0], r => r[2]));
+  renewal.sort(cmp(r => r[0], r => r[2], r => r[4]));
 
   // 2. 묶음·낱개: 한 채널에서 제품코드 1개에 88코드 여러 개
   const byProduct = new Map();
@@ -842,18 +857,15 @@ const CODE_TIP = '엑셀에서 88코드가 8.8E+12처럼 보이면 그 열의 �
 $('reviewDownload').onclick = async () => {
   const btn = $('reviewDownload');
   btn.disabled = true;
-  reviewMessage('엑셀 파일을 만드는 중이에요...', 'warn');
-  await new Promise(r => setTimeout(r, 30));
+  reviewMessage('');
   try {
-    const url = URL.createObjectURL(new Blob([reviewWorkbook(reviewLists)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `검토리스트_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    reviewMessage(`다운로드를 시작했어요. 다운로드 폴더를 확인해 주세요. 받아지지 않으면 "이 리스트 복사"를 눌러 엑셀에 붙여넣어 주세요. ${CODE_TIP}`, 'ok');
+    const result = await saveFile(`검토리스트_${new Date().toISOString().slice(0, 10)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx', async () => {
+      reviewMessage('엑셀 파일을 만드는 중이에요...', 'warn');
+      await new Promise(r => setTimeout(r, 30));
+      return reviewWorkbook(reviewLists);
+    });
+    if (result === 'saved') reviewMessage(`선택한 위치에 저장했어요. ${CODE_TIP}`, 'ok');
+    else if (result === 'downloaded') reviewMessage(`다운로드를 시작했어요. 다운로드 폴더를 확인해 주세요. 받아지지 않으면 "이 리스트 복사"를 눌러 엑셀에 붙여넣어 주세요. ${CODE_TIP}`, 'ok');
   } catch (e) {
     console.error(e);
     reviewMessage(`엑셀 파일을 만들지 못했어요. "이 리스트 복사"로 받아 주세요. 원인: ${e.message}`, 'err');
