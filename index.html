@@ -63,6 +63,7 @@ td.n,th.n{text-align:right}
   <nav>
     <button id="navUpload" class="on">데이터 업로드</button>
     <button id="navStatus">데이터 현황</button>
+    <button id="navReview">검토 리스트</button>
   </nav>
 </header>
 <main>
@@ -107,6 +108,16 @@ td.n,th.n{text-align:right}
     <div class="card"><h2>백업 (CSV 내보내기)</h2><p class="sub">내려받은 파일은 업로드 화면에 그대로 다시 올릴 수 있어요.</p><div class="actions" id="backupButtons"></div></div>
     <div class="card"><h2>최근 업로드</h2><div id="uploads"></div></div>
     <div class="card"><h2>채널 기준</h2><div id="channels"></div></div>
+  </section>
+
+  <section id="viewReview" class="hide">
+    <div class="tabs" id="reviewTabs"></div>
+    <div class="card">
+      <h2 id="reviewTitle"></h2>
+      <p class="need" id="reviewNote"></p>
+      <div id="reviewTable"></div>
+      <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><span class="sub" id="reviewCap"></span></div>
+    </div>
   </section>
 </main>
 
@@ -668,16 +679,167 @@ async function loadStatus(){
   if (!channels.length) $('channels').replaceChildren(el('p', '아직 올린 채널 기준이 없어요.', 'sub'));
   else table($('channels'), ['팀', '채널', '채널2', '금액 기준'], channels.map(c => [c.team, c.channel, c.channel2, c.basis === 'X' ? '관리 제외' : c.basis]));
 }
+// ---------- 검토 리스트 ----------
+const addDay = d => new Date(Date.parse(d) + 86400000).toISOString().slice(0, 10);
+function reviewData({pos, mapping, product, promo}){
+  const posByCode = new Map();
+  const posByDay = new Map();
+  for (const p of pos){
+    const k = p.channel + '|' + p.code88;
+    let e = posByCode.get(k);
+    if (!e) posByCode.set(k, e = {channel: p.channel, code88: p.code88, name: p.name, qty: 0, amount: 0, first: p.date, last: p.date});
+    e.qty += p.qty; e.amount += p.amount;
+    if (p.date < e.first) e.first = p.date;
+    if (p.date > e.last) e.last = p.date;
+    let days = posByDay.get(p.channel);
+    if (!days) posByDay.set(p.channel, days = new Map());
+    const day = days.get(p.date) || {rows: 0, qty: 0};
+    day.rows++; day.qty += p.qty;
+    days.set(p.date, day);
+  }
+  const avg = (amount, qty) => qty ? Math.round(amount / qty) : '';
+  const cmp = (...keys) => (a, b) => { for (const f of keys){ const x = f(a), y = f(b); if (x < y) return -1; if (x > y) return 1; } return 0; };
+
+  // 1. 리뉴얼 코드: 같은 88코드가 제품코드 여러 개로 잡힘
+  const by88 = new Map();
+  for (const m of mapping){
+    if (!by88.has(m.code88)) by88.set(m.code88, new Map());
+    const codes = by88.get(m.code88);
+    if (!codes.has(m.productCode)) codes.set(m.productCode, {m, channels: new Set()});
+    codes.get(m.productCode).channels.add(m.channel2);
+  }
+  const renewal = [];
+  for (const [code88, codes] of by88){
+    if (codes.size < 2) continue;
+    const seen = new Map();
+    for (const {channels} of codes.values()) for (const c of channels) seen.set(c, (seen.get(c) || 0) + 1);
+    for (const [productCode, {m, channels}] of codes){
+      let qty = 0, last = '';
+      for (const c of channels){
+        const e = posByCode.get(c + '|' + code88);
+        if (e){ qty += e.qty; if (e.last > last) last = e.last; }
+      }
+      const dup = [...channels].some(c => seen.get(c) > 1);
+      renewal.push([code88, m.eanName, productCode, m.productName, [...channels].sort().join(', '), dup ? 'Y' : '', qty, last]);
+    }
+  }
+  renewal.sort(cmp(r => r[0], r => r[2]));
+
+  // 2. 묶음·낱개: 한 채널에서 제품코드 1개에 88코드 여러 개
+  const byProduct = new Map();
+  for (const m of mapping){
+    const k = m.channel2 + '|' + m.productCode;
+    if (!byProduct.has(k)) byProduct.set(k, []);
+    byProduct.get(k).push(m);
+  }
+  const bundle = [];
+  for (const list of byProduct.values()){
+    if (new Set(list.map(m => m.code88)).size < 2) continue;
+    for (const m of list){
+      const e = posByCode.get(m.channel2 + '|' + m.code88) || {qty: 0, amount: 0};
+      bundle.push([m.channel2, m.productCode, m.productName, m.code88, m.eanName, e.qty, e.amount, avg(e.amount, e.qty)]);
+    }
+  }
+  bundle.sort(cmp(r => r[0], r => r[1], r => r[3]));
+
+  // 3. 행사차수 누락: POS 날짜 중 어느 차수에도 없는 구간
+  const spans = new Map();
+  for (const p of promo){
+    if (!spans.has(p.channel)) spans.set(p.channel, []);
+    spans.get(p.channel).push(p);
+  }
+  const gaps = [];
+  for (const [channel, days] of posByDay){
+    const list = spans.get(channel) || [];
+    let cur = null;
+    const flush = () => { if (cur) gaps.push([channel, list.length ? '' : '행사차수 없음', cur.start, cur.end, cur.days, cur.rows, cur.qty]); cur = null; };
+    for (const d of [...days.keys()].sort()){
+      if (list.some(s => s.start <= d && d <= s.end)) { flush(); continue; }
+      const v = days.get(d);
+      if (cur && addDay(cur.end) === d){ cur.end = d; cur.days++; cur.rows += v.rows; cur.qty += v.qty; }
+      else { flush(); cur = {start: d, end: d, days: 1, rows: v.rows, qty: v.qty}; }
+    }
+    flush();
+  }
+  gaps.sort(cmp(r => r[0], r => r[2]));
+
+  // 4. 매칭 누락, 5. 분류 누락
+  const mapped = new Set(mapping.map(m => m.channel2 + '|' + m.code88));
+  const unmatched = [...posByCode.values()].filter(e => !mapped.has(e.channel + '|' + e.code88))
+    .map(e => [e.channel, e.code88, e.name, e.qty, e.amount, e.first, e.last]).sort(cmp(r => r[0], r => -r[4]));
+  const known = new Set(product.map(p => p.productCode));
+  const missing = new Map();
+  for (const m of mapping){
+    if (known.has(m.productCode)) continue;
+    if (!missing.has(m.productCode)) missing.set(m.productCode, {name: m.productName, channels: new Set()});
+    missing.get(m.productCode).channels.add(m.channel2);
+  }
+  const unclassified = [...missing].map(([c, v]) => [c, v.name, [...v.channels].sort().join(', ')]).sort(cmp(r => r[0]));
+
+  return [
+    {id: 'renewal', name: '리뉴얼 코드', note: '같은 88코드가 제품코드 여러 개로 잡힌 경우예요. 어떻게 처리할지 코드별로 알려 주세요. 처리 전에는 합치지 않아요. "같은 채널 복수"가 Y이면 한 채널에서도 제품코드가 갈려서, 판매수량이 두 행에 모두 포함돼 있어요.',
+     heads: ['88코드', 'EAN제품명', '제품코드', '제품명', '채널', '같은 채널 복수', 'POS 판매수량', '최근 판매일'], numeric: [6], rows: renewal},
+    {id: 'bundle', name: '묶음·낱개', note: '한 채널에서 제품코드 1개에 88코드가 여러 개인 경우예요. 평균 단가로 묶음과 낱개를 구분해 보세요. 금액 기준은 채널별로 달라요.',
+     heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', 'POS 판매수량', 'POS 판매금액', '평균 단가'], numeric: [5, 6, 7], rows: bundle},
+    {id: 'gaps', name: '행사차수 누락', note: 'POS가 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요.',
+     heads: ['채널', '비고', '시작일', '종료일', '일수', 'POS 건수', '판매수량'], numeric: [4, 5, 6], rows: gaps},
+    {id: 'unmatched', name: '매칭 누락', note: 'POS에는 있는데 88코드 매칭표에 없는 채널·코드예요. 판매금액이 큰 순서로 보여 줘요.',
+     heads: ['채널', '88코드', 'POS 제품명', '판매수량', '판매금액', '첫 판매일', '최근 판매일'], numeric: [3, 4], rows: unmatched},
+    {id: 'unclassified', name: '분류 누락', note: '매칭표에는 있는데 제품분류표에 없는 제품코드예요.',
+     heads: ['제품코드', '제품명', '채널'], numeric: [], rows: unclassified},
+  ];
+}
+function reviewWorkbook(lists){
+  const wb = XLSX.utils.book_new();
+  for (const l of lists) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([l.heads, ...l.rows]), l.name.replace('·', ' '));
+  return XLSX.write(wb, {type: 'array', bookType: 'xlsx'});
+}
+const REVIEW_LIMIT = 1000;
+let reviewLists = [], reviewIndex = 0;
+function renderReview(){
+  $('reviewTabs').replaceChildren(...reviewLists.map((l, i) => {
+    const b = el('button', null, 'tab' + (i === reviewIndex ? ' on' : ''));
+    b.append(el('b', l.name), el('small', fmt(l.rows.length) + '행'));
+    b.onclick = () => { reviewIndex = i; renderReview(); };
+    return b;
+  }));
+  const l = reviewLists[reviewIndex];
+  $('reviewTitle').textContent = l.name;
+  $('reviewNote').textContent = l.note;
+  if (!l.rows.length) $('reviewTable').replaceChildren(el('p', '해당되는 항목이 없어요.', 'sub'));
+  else table($('reviewTable'), l.heads, l.rows.slice(0, REVIEW_LIMIT).map(r => r.map((v, i) => l.numeric.includes(i) && v !== '' ? fmt(v) : v)), i => l.numeric.includes(i));
+  $('reviewCap').textContent = l.rows.length > REVIEW_LIMIT ? `화면에는 ${fmt(REVIEW_LIMIT)}행까지 보여요. 전체는 엑셀로 확인하세요.` : '';
+}
+async function loadReview(){
+  $('reviewTitle').textContent = '계산 중이에요...';
+  $('reviewNote').textContent = '';
+  $('reviewTable').replaceChildren();
+  const [pos, mapping, product, promo] = await Promise.all(['pos', 'mapping', 'product', 'promo'].map(getAll));
+  reviewLists = reviewData({pos, mapping, product, promo});
+  renderReview();
+}
+$('reviewDownload').onclick = () => {
+  if (!reviewLists.length) return;
+  const url = URL.createObjectURL(new Blob([reviewWorkbook(reviewLists)], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `검토리스트_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
+
+const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview']};
 function show(view){
-  const up = view === 'upload';
-  $('viewUpload').classList.toggle('hide', !up);
-  $('viewStatus').classList.toggle('hide', up);
-  $('navUpload').classList.toggle('on', up);
-  $('navStatus').classList.toggle('on', !up);
-  if (!up) loadStatus();
+  for (const [k, [sec, nav]] of Object.entries(VIEWS)){
+    $(sec).classList.toggle('hide', k !== view);
+    $(nav).classList.toggle('on', k === view);
+  }
+  if (view === 'status') loadStatus();
+  if (view === 'review') loadReview();
 }
 $('navUpload').onclick = () => show('upload');
 $('navStatus').onclick = () => show('status');
+$('navReview').onclick = () => show('review');
 renderTabs();
 </script>
 </body>
