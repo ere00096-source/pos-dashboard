@@ -223,6 +223,7 @@ const DATASETS = [
 ];
 const byId = id => DATASETS.find(d => d.id === id);
 
+const EXCLUDED = '제외코드';
 const CONVERT = {
   channels(c){
     const channel2 = text(c.channel2);
@@ -247,16 +248,19 @@ const CONVERT = {
     const channel2 = text(c.channel2);
     if (!channel2) throw new RowError('채널2 없음');
     if (ctx.channels.size && !ctx.channels.has(channel2)) ctx.warn(`채널 기준에 없는 채널: ${channel2}`);
-    const code88 = code(c.code88, '88코드'), productCode = code(c.productCode, '제품코드');
+    const code88 = code(c.code88, '88코드');
+    // 제품코드나 제품명이 '제외코드'면 분석·검토에서 빼는 코드로 저장한다
+    const excluded = text(c.productCode) === EXCLUDED || text(c.productName) === EXCLUDED;
+    const productCode = excluded ? EXCLUDED : code(c.productCode, '제품코드');
     let conv = null;
-    if ('conv' in c){
+    if (!excluded && 'conv' in c){
       if (text(c.conv) === '') ctx.warn('전환수량이 비어 있는 행');
       else {
         conv = number(c.conv, '전환수량');
         if (!(conv > 0)) throw new RowError(`전환수량은 0보다 커야 해요: ${conv}`);
       }
     }
-    return {id: `${channel2}|${code88}|${productCode}`, channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName), conv};
+    return {id: `${channel2}|${code88}|${productCode}`, channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName), conv, excluded};
   },
   product(c){
     const productCode = code(c.productCode, '제품번호');
@@ -679,7 +683,8 @@ async function loadStatus(){
   }
   let unmatched = 0;
   for (const [k, q] of codeQty) if (q !== 0 && !mapped.has(k)) unmatched++;
-  const unclassified = new Set(mapping.filter(m => codeQty.get(m.channel2 + '|' + m.code88) && !known.has(m.productCode)).map(m => m.productCode)).size;
+  const unclassified = new Set(mapping.filter(m => !m.excluded && codeQty.get(m.channel2 + '|' + m.code88) && !known.has(m.productCode)).map(m => m.productCode)).size;
+  const excludedCodes = mapping.filter(m => m.excluded).length;
   let min = null, max = null;
   const cells = new Map();
   for (const p of pos){
@@ -692,6 +697,7 @@ async function loadStatus(){
     el('p', `POS 기간: ${min ? min + ' ~ ' + max : '아직 없음'}`),
     el('p', `매칭표에 없는 POS 88코드: ${fmt(unmatched)}개 (판매수량이 있는 채널별 코드 기준)`),
     el('p', `제품분류표에 없는 제품코드: ${fmt(unclassified)}개 (판매수량이 있는 코드 기준)`),
+    el('p', `제외코드로 지정된 채널별 88코드: ${fmt(excludedCodes)}개 (검토·분석에서 제외)`),
   );
   const months = [...new Set([...cells.keys()].map(k => k.split('|')[1]))].sort();
   const chans = [...new Set([...cells.keys()].map(k => k.split('|')[0]))].sort();
@@ -748,7 +754,7 @@ function reviewData({pos, mapping, product, promo}){
   const cmp = (...keys) => (a, b) => { for (const f of keys){ const x = f(a), y = f(b); if (x < y) return -1; if (x > y) return 1; } return 0; };
   // 실제 판매수량이 있는 88코드만 검토 대상으로 본다
   const isSold = e => !!e && e.qty !== 0;
-  const soldMapping = mapping.filter(m => isSold(posByCode.get(m.channel2 + '|' + m.code88)));
+  const soldMapping = mapping.filter(m => !m.excluded && isSold(posByCode.get(m.channel2 + '|' + m.code88)));
 
   // 1. 리뉴얼 코드: 같은 88코드가 제품코드 여러 개로 잡힘
   const by88 = new Map();
