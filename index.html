@@ -392,14 +392,21 @@ function parseRows(ds, sheets, channels){
 }
 function dedupe(ds, rows, ctx){
   const map = new Map();
-  let same = 0, conflict = 0, merged = 0;
+  let same = 0, conflict = 0, merged = 0, nameOnly = 0;
   for (const r of rows){
     const old = map.get(r.id);
     if (!old){ map.set(r.id, r); continue; }
     if (ds.id === 'pos'){ old.qty += r.qty; old.amount += r.amount; merged++; }
     else if (JSON.stringify(old) === JSON.stringify(r)) same++;
+    else if (ds.id === 'mapping'){
+      // 채널·88코드·제품코드가 같으면 1행으로 합친다. 빈 값은 다른 행의 값으로 채운다.
+      for (const k of Object.keys(r)) if ((old[k] === '' || old[k] == null) && r[k] !== '' && r[k] != null) old[k] = r[k];
+      if (r.conv != null && old.conv !== r.conv) ctx.warn(`전환수량이 서로 다른 중복 행 (첫 값 ${old.conv} 사용): ${r.channel2} ${r.code88} ${r.productCode}, 다른 값 ${r.conv}`);
+      else nameOnly++;
+    }
     else conflict++;
   }
+  if (nameOnly) ctx.warn('채널·88코드·제품코드가 같아 1행으로 합친 행 (제품명 등만 다름, 정상)', nameOnly);
   if (merged) ctx.warn('같은 채널·날짜·88코드가 반복되어 수량과 금액을 합친 행 (같은 자료를 두 번 붙여넣었다면 취소하세요)', merged);
   if (same) ctx.warn('완전히 같은 중복 행을 1개로 정리', same);
   if (conflict) ctx.warn('같은 키인데 내용이 다른 행 (첫 행만 사용)', conflict);
