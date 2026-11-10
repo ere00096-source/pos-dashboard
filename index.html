@@ -831,20 +831,23 @@ function reviewData({pos, mapping, product, promo, channels = []}){
     if (!byProduct.has(k)) byProduct.set(k, []);
     byProduct.get(k).push(m);
   }
+  // 한 채널 + 88코드의 전환수량 종류 (제품코드가 달라도 함께 센다)
+  const convsByCode = new Map();
+  for (const m of soldMapping){
+    const k = m.channel2 + '|' + m.code88;
+    if (!convsByCode.has(k)) convsByCode.set(k, new Set());
+    convsByCode.get(k).add(m.conv ?? null);
+  }
+  const multiConvOf = m => convsByCode.get(m.channel2 + '|' + m.code88).size > 1;
   const bundle = [];
   for (const list of byProduct.values()){
-    const convsBy88 = new Map();
-    for (const m of list){
-      if (!convsBy88.has(m.code88)) convsBy88.set(m.code88, new Set());
-      convsBy88.get(m.code88).add(m.conv ?? null);
-    }
-    const multiConv = [...convsBy88.values()].some(s => s.size > 1);
-    if (convsBy88.size < 2 && !multiConv) continue;
+    const codes = new Set(list.map(m => m.code88));
+    if (codes.size < 2 && !list.some(multiConvOf)) continue;
     for (const m of list){
       const e = posByCode.get(m.channel2 + '|' + m.code88);
       const hasConv = m.conv != null;
       const base = hasConv ? e.qty * m.conv : '';
-      const status = convsBy88.get(m.code88).size > 1 ? '전환수량 여러 개' : hasConv ? '' : '전환수량 없음';
+      const status = multiConvOf(m) ? '전환수량 여러 개' : hasConv ? '' : '전환수량 없음';
       bundle.push([m.channel2, m.productCode, m.productName, m.code88, m.eanName, hasConv ? m.conv : '', e.qty, base, e.amount, avg(e.amount, e.qty), hasConv ? avg(e.amount, base) : '', status]);
     }
   }
@@ -930,7 +933,7 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   return [
     {id: 'renewal', name: '리뉴얼 코드', note: '88코드 1개에 제품코드가 여러 개인 건 번갈아 출고하는 정상 상황이라, 그중 제품코드끼리 대·소분류가 서로 다른 경우만 보여 줘요. 대시보드에서는 어느 제품코드를 골라도 그 88코드의 판매가 똑같이 나와서, 분류가 다르면 분류별 합계가 어긋날 수 있어요. 판매수량이 있는 코드만 보고, 제품분류표에 없는 제품코드는 비교에서 빼요(분류 누락 탭에서 확인).',
      heads: ['88코드', 'EAN제품명', '제품코드', '제품명', '대카테고리', '소카테고리', '채널', 'POS 판매수량', '최근 판매일'], numeric: [7], rows: renewal},
-    {id: 'bundle', name: '묶음·낱개', note: '판매수량이 있는 코드 중에서 한 채널의 제품코드 1개에 88코드가 여러 개인 경우예요. 낱개 환산 수량은 판매수량 × 전환수량이에요. 낱개 단가가 코드끼리 크게 다르면 전환수량을 확인해 보세요. "전환수량 여러 개"는 같은 88코드에 전환수량만 다른 행이 있는 경우예요. POS에는 88코드만 있어서 판매수량이 그 행들에 똑같이 표시되고, 분석 때 어느 전환수량을 쓸지 정해야 해요. 금액 기준은 채널별로 달라요.',
+    {id: 'bundle', name: '묶음·낱개', note: '판매수량이 있는 코드 중에서 한 채널의 제품코드 1개에 88코드가 여러 개인 경우예요. 낱개 환산 수량은 판매수량 × 전환수량이에요. 낱개 단가가 코드끼리 크게 다르면 전환수량을 확인해 보세요. "전환수량 여러 개"는 한 채널에서 같은 88코드에 전환수량이 다른 행이 있는 경우예요(제품코드가 달라도 포함). POS에는 88코드만 있어서 판매수량이 그 행들에 똑같이 표시되고, 분석 때 어느 전환수량을 쓸지 정해야 해요. 금액 기준은 채널별로 달라요.',
      heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', '전환수량', 'POS 판매수량', '낱개 환산 수량', 'POS 판매금액', '평균 단가', '낱개 단가', '상태'], numeric: [5, 6, 7, 8, 9, 10], rows: bundle},
     {id: 'gaps', name: '행사차수 누락', note: '판매수량이 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요. 채널마다 첫 차수 시작일 이전(관리 대상 아님)과 마지막 차수 종료일 이후(다음 차수를 올리면 채워짐)는 빼고, 차수 사이에 빈 날짜만 보여 줘요. "행사차수 없음"은 그 채널의 행사차수가 아예 없는 경우예요.',
      heads: ['채널', '비고', '시작일', '종료일', '일수', 'POS 건수', '판매수량'], numeric: [4, 5, 6], rows: gaps},
