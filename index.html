@@ -224,6 +224,8 @@ const DATASETS = [
 const byId = id => DATASETS.find(d => d.id === id);
 
 const EXCLUDED = '제외코드';
+// 매칭표는 채널·88코드·제품코드·전환수량이 모두 같아야 같은 행이다
+const mappingId = (channel2, code88, productCode, conv) => `${channel2}|${code88}|${productCode}|${conv == null ? '' : conv}`;
 const CONVERT = {
   channels(c){
     const channel2 = text(c.channel2);
@@ -260,7 +262,7 @@ const CONVERT = {
         if (!(conv > 0)) throw new RowError(`전환수량은 0보다 커야 해요: ${conv}`);
       }
     }
-    return {id: `${channel2}|${code88}|${productCode}`, channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName), conv, excluded};
+    return {id: mappingId(channel2, code88, productCode, conv), channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName), conv, excluded};
   },
   product(c){
     const productCode = code(c.productCode, '제품번호');
@@ -399,14 +401,13 @@ function dedupe(ds, rows, ctx){
     if (ds.id === 'pos'){ old.qty += r.qty; old.amount += r.amount; merged++; }
     else if (JSON.stringify(old) === JSON.stringify(r)) same++;
     else if (ds.id === 'mapping'){
-      // 채널·88코드·제품코드가 같으면 1행으로 합친다. 빈 값은 다른 행의 값으로 채운다.
+      // 채널·88코드·제품코드·전환수량이 같으면 1행으로 합친다. 빈 값은 다른 행의 값으로 채운다.
       for (const k of Object.keys(r)) if ((old[k] === '' || old[k] == null) && r[k] !== '' && r[k] != null) old[k] = r[k];
-      if (r.conv != null && old.conv !== r.conv) ctx.warn(`전환수량이 서로 다른 중복 행 (첫 값 ${old.conv} 사용): ${r.channel2} ${r.code88} ${r.productCode}, 다른 값 ${r.conv}`);
-      else nameOnly++;
+      nameOnly++;
     }
     else conflict++;
   }
-  if (nameOnly) ctx.warn('채널·88코드·제품코드가 같아 1행으로 합친 행 (제품명 등만 다름, 정상)', nameOnly);
+  if (nameOnly) ctx.warn('채널·88코드·제품코드·전환수량이 같아 1행으로 합친 행 (제품명 등만 다름, 정상)', nameOnly);
   if (merged) ctx.warn('같은 채널·날짜·88코드가 반복되어 수량과 금액을 합친 행 (같은 자료를 두 번 붙여넣었다면 취소하세요)', merged);
   if (same) ctx.warn('완전히 같은 중복 행을 1개로 정리', same);
   if (conflict) ctx.warn('같은 키인데 내용이 다른 행 (첫 행만 사용)', conflict);
@@ -426,14 +427,20 @@ function overlapWarnings(ds, rows, ctx){
       }
     }
   } else if (ds.id === 'mapping'){
-    const count = new Map();
+    const products = new Map(), convs = new Map();
     for (const r of rows){
       const k = r.channel2 + '|' + r.code88;
-      count.set(k, (count.get(k) || 0) + 1);
+      if (!products.has(k)) products.set(k, new Set());
+      products.get(k).add(r.productCode);
+      const kc = k + '|' + r.productCode;
+      if (!convs.has(kc)) convs.set(kc, new Set());
+      convs.get(kc).add(r.conv ?? null);
     }
-    let multi = 0;
-    for (const n of count.values()) if (n > 1) multi++;
+    let multi = 0, multiConv = 0;
+    for (const s of products.values()) if (s.size > 1) multi++;
+    for (const s of convs.values()) if (s.size > 1) multiConv++;
     if (multi) ctx.warn('한 채널에서 같은 88코드에 제품코드가 여러 개인 경우 (이후 검토 리스트 대상)', multi);
+    if (multiConv) ctx.warn('같은 채널·88코드·제품코드에 전환수량이 여러 개라 별도 행으로 저장한 경우 (묶음·낱개 탭에서 확인)', multiConv);
   }
 }
 
@@ -442,12 +449,28 @@ const STORES = DATASETS.map(d => d.id);
 let dbPromise;
 function db(){
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('pos-data', 1);
-    req.onupgradeneeded = () => {
-      for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
-      req.result.createObjectStore('uploads', {keyPath: 'seq', autoIncrement: true});
+    const req = indexedDB.open('pos-data', 2);
+    req.onupgradeneeded = e => {
+      if (e.oldVersion < 1){
+        for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
+        req.result.createObjectStore('uploads', {keyPath: 'seq', autoIncrement: true});
+        return;
+      }
+      if (e.oldVersion < 2){
+        // 매칭표 저장 키에 전환수량을 넣는다
+        const st = req.transaction.objectStore('mapping');
+        st.openCursor().onsuccess = ev => {
+          const cur = ev.target.result;
+          if (!cur) return;
+          const m = cur.value;
+          const id = mappingId(m.channel2, m.code88, m.productCode, m.conv);
+          if (id !== m.id){ cur.delete(); st.put({...m, id}); }
+          cur.continue();
+        };
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onblocked = () => reject(new UserError('이 사이트가 다른 탭에도 열려 있어요. 다른 탭을 모두 닫고 새로고침해 주세요.'));
+    req.onsuccess = () => { req.result.onversionchange = () => req.result.close(); resolve(req.result); };
     req.onerror = () => reject(new UserError('브라우저 저장소를 열 수 없어요. 시크릿 창이거나 사이트 데이터가 차단된 상태일 수 있어요.'));
   });
   return dbPromise;
@@ -770,14 +793,17 @@ function reviewData({pos, mapping, product, promo, channels = []}){
     if (!by88.has(m.code88)) by88.set(m.code88, new Set());
     by88.get(m.code88).add(m.productCode);
     const k = m.channel2 + '|' + m.code88;
-    perChannel.set(k, (perChannel.get(k) || 0) + 1);
+    if (!perChannel.has(k)) perChannel.set(k, new Set());
+    perChannel.get(k).add(m.productCode);
   }
-  const renewal = [];
+  const renewal = [], renewalSeen = new Set();
   for (const m of soldMapping){
     if (by88.get(m.code88).size < 2) continue;
     const k = m.channel2 + '|' + m.code88;
+    if (renewalSeen.has(k + '|' + m.productCode)) continue;
+    renewalSeen.add(k + '|' + m.productCode);
     const e = posByCode.get(k);
-    renewal.push([m.code88, m.eanName, m.productCode, m.productName, m.channel2, perChannel.get(k) > 1 ? '채널 내 중복' : '채널 간 다름', e.qty, e.last]);
+    renewal.push([m.code88, m.eanName, m.productCode, m.productName, m.channel2, perChannel.get(k).size > 1 ? '채널 내 중복' : '채널 간 다름', e.qty, e.last]);
   }
   renewal.sort(cmp(r => r[5] === '채널 내 중복' ? 0 : 1, r => r[0], r => r[2], r => r[4]));
 
@@ -790,12 +816,19 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   }
   const bundle = [];
   for (const list of byProduct.values()){
-    if (new Set(list.map(m => m.code88)).size < 2) continue;
+    const convsBy88 = new Map();
+    for (const m of list){
+      if (!convsBy88.has(m.code88)) convsBy88.set(m.code88, new Set());
+      convsBy88.get(m.code88).add(m.conv ?? null);
+    }
+    const multiConv = [...convsBy88.values()].some(s => s.size > 1);
+    if (convsBy88.size < 2 && !multiConv) continue;
     for (const m of list){
       const e = posByCode.get(m.channel2 + '|' + m.code88);
       const hasConv = m.conv != null;
       const base = hasConv ? e.qty * m.conv : '';
-      bundle.push([m.channel2, m.productCode, m.productName, m.code88, m.eanName, hasConv ? m.conv : '', e.qty, base, e.amount, avg(e.amount, e.qty), hasConv ? avg(e.amount, base) : '', hasConv ? '' : '전환수량 없음']);
+      const status = convsBy88.get(m.code88).size > 1 ? '전환수량 여러 개' : hasConv ? '' : '전환수량 없음';
+      bundle.push([m.channel2, m.productCode, m.productName, m.code88, m.eanName, hasConv ? m.conv : '', e.qty, base, e.amount, avg(e.amount, e.qty), hasConv ? avg(e.amount, base) : '', status]);
     }
   }
   bundle.sort(cmp(r => r[0], r => r[1], r => r[3]));
@@ -861,8 +894,7 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   for (const m of soldMapping){
     if (known.has(m.productCode)) continue;
     const k = m.productCode + '|' + m.channel2 + '|' + m.code88;
-    if (!missing.has(k)) missing.set(k, [m.productCode, m.productName, m.channel2, m.code88, m.eanName, 0]);
-    missing.get(k)[5] += posByCode.get(m.channel2 + '|' + m.code88).qty;
+    if (!missing.has(k)) missing.set(k, [m.productCode, m.productName, m.channel2, m.code88, m.eanName, posByCode.get(m.channel2 + '|' + m.code88).qty]);
   }
   const unclassified = [...missing.values()].sort(cmp(r => r[0], r => r[2], r => r[3]));
 
@@ -877,7 +909,7 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   return [
     {id: 'renewal', name: '리뉴얼 코드', note: '판매수량이 있는 코드 중에서 같은 88코드가 제품코드 여러 개로 잡힌 경우예요. "채널 내 중복"은 한 채널 안에서 제품코드가 갈린 경우로, 판매수량이 두 행에 모두 들어가 있어 먼저 확인이 필요해요. "채널 간 다름"은 채널마다 다른 제품코드에 연결된 경우예요. 리뉴얼이나 생산 공장 차이로 코드만 다른 같은 제품이면 처리 방법을 알려 주시고, 일부러 다르게 매칭한 건이면 넘어가셔도 돼요. 처리 전에는 합치지 않아요.',
      heads: ['88코드', 'EAN제품명', '제품코드', '제품명', '채널', '구분', 'POS 판매수량', '최근 판매일'], numeric: [6], rows: renewal},
-    {id: 'bundle', name: '묶음·낱개', note: '판매수량이 있는 코드 중에서 한 채널의 제품코드 1개에 88코드가 여러 개인 경우예요. 낱개 환산 수량은 판매수량 × 전환수량이에요. 낱개 단가가 코드끼리 크게 다르면 전환수량을 확인해 보세요. 금액 기준은 채널별로 달라요.',
+    {id: 'bundle', name: '묶음·낱개', note: '판매수량이 있는 코드 중에서 한 채널의 제품코드 1개에 88코드가 여러 개인 경우예요. 낱개 환산 수량은 판매수량 × 전환수량이에요. 낱개 단가가 코드끼리 크게 다르면 전환수량을 확인해 보세요. "전환수량 여러 개"는 같은 88코드에 전환수량만 다른 행이 있는 경우예요. POS에는 88코드만 있어서 판매수량이 그 행들에 똑같이 표시되고, 분석 때 어느 전환수량을 쓸지 정해야 해요. 금액 기준은 채널별로 달라요.',
      heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', '전환수량', 'POS 판매수량', '낱개 환산 수량', 'POS 판매금액', '평균 단가', '낱개 단가', '상태'], numeric: [5, 6, 7, 8, 9, 10], rows: bundle},
     {id: 'gaps', name: '행사차수 누락', note: '판매수량이 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요.',
      heads: ['채널', '비고', '시작일', '종료일', '일수', 'POS 건수', '판매수량'], numeric: [4, 5, 6], rows: gaps},
