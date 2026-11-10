@@ -11,7 +11,7 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo",sans-serif}
 header{background:var(--card);border-bottom:1px solid var(--line);padding:0 24px;display:flex;align-items:center;gap:32px;height:56px}
 header h1{font-size:17px;margin:0;white-space:nowrap}
-nav{display:flex;gap:4px;height:100%}
+nav{display:flex;gap:4px;height:100%;min-width:0;overflow-x:auto;scrollbar-width:none}
 nav button{background:none;border:0;border-bottom:2px solid transparent;padding:0 14px;font:inherit;color:var(--sub);cursor:pointer;white-space:nowrap}
 nav button.on{color:var(--pri);border-color:var(--pri);font-weight:700}
 main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
@@ -55,7 +55,16 @@ td.n,th.n{text-align:right}
 .spin{color:var(--pri);padding:10px 0}
 .sub{color:var(--sub);font-size:13px}
 #reviewTabs{grid-template-columns:repeat(6,1fr)}
-@media(max-width:800px){.tabs,.stats,#counts,#reviewTabs{grid-template-columns:repeat(2,1fr)}.inputs{grid-template-columns:1fr}header{gap:12px;padding:0 16px}main{padding:16px 16px 48px}}
+.filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub)}
+.fld select,.fld input{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:14px;color:var(--ink);background:#fff;min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{border:1px solid var(--line);border-radius:16px;padding:4px 12px;font-size:13px;display:flex;gap:6px;align-items:center;background:#fff;cursor:pointer}
+#dKpi{grid-template-columns:repeat(5,1fr)}
+#dKpi .stat span+b+span{margin-top:4px;color:var(--warn)}
+button.rowlink{background:none;border:0;color:var(--pri);font:inherit;cursor:pointer;padding:0;text-align:left}
+button.rowlink:hover{text-decoration:underline}
+@media(max-width:800px){.tabs,.stats,#counts,#reviewTabs,#dKpi,.filters{grid-template-columns:repeat(2,minmax(0,1fr))}header h1{font-size:15px}nav button{padding:0 8px}.inputs{grid-template-columns:1fr}header{gap:12px;padding:0 16px}main{padding:16px 16px 48px}}
 </style>
 </head>
 <body>
@@ -65,6 +74,7 @@ td.n,th.n{text-align:right}
     <button id="navUpload" class="on">데이터 업로드</button>
     <button id="navStatus">데이터 현황</button>
     <button id="navReview">검토 리스트</button>
+    <button id="navDash">대시보드</button>
   </nav>
 </header>
 <main>
@@ -126,6 +136,34 @@ td.n,th.n{text-align:right}
       <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><button class="sec" id="reviewCopy">이 리스트 복사</button><button class="sec hide" id="reviewTemplate">매칭표 양식으로 복사</button><span class="sub" id="reviewCap"></span></div>
       <p id="reviewMsg" class="msg hide" style="margin-top:12px"></p>
     </div>
+  </section>
+
+  <section id="viewDash" class="hide">
+    <div class="card">
+      <div class="filters">
+        <label class="fld">보기 단위<select id="dUnit"><option value="round">차수별 (일평균)</option><option value="day">일자별</option></select></label>
+        <label class="fld" id="dRoundWrap">차수<select id="dRound"></select></label>
+        <label class="fld hide" id="dDateWrap">일자<input type="date" id="dDate"></label>
+        <label class="fld">수량 기준<select id="dView"><option value="product">제품코드 (낱개 환산)</option><option value="code">88코드 (RAW 수량)</option></select></label>
+        <label class="fld">대분류<select id="dMajor"></select></label>
+        <label class="fld">소분류<select id="dMinor"></select></label>
+        <label class="fld">제품 검색<input id="dQuery" placeholder="코드 또는 이름"></label>
+        <label class="fld">지표<select id="dMetric"><option value="qty">판매수량</option><option value="amount">판매금액</option><option value="price">단가</option></select></label>
+      </div>
+      <div class="chips" id="dChannels"></div>
+      <p class="sub" id="dNotice" style="margin:12px 0 0"></p>
+    </div>
+    <div class="stats" id="dKpi"></div>
+    <div class="card"><h2 id="dT1Title">채널 비교</h2><p class="need" id="dT1Note"></p><div id="dT1"></div></div>
+    <div class="card hide" id="dDetail">
+      <h2 id="dT2Title"></h2>
+      <div class="actions hide" id="dTrendRange" style="margin:0 0 12px"><label class="fld">시작일<input type="date" id="dFrom"></label><label class="fld">종료일<input type="date" id="dTo"></label></div>
+      <p class="need" id="dT2Note"></p>
+      <div id="dT2"></div>
+      <h2 id="dT3Title" style="margin-top:20px">88코드별 상세 (선택한 기간)</h2>
+      <div id="dT3"></div>
+    </div>
+    <div class="card"><h2>확대 후보</h2><p class="need">선택한 기간에 한 채널에서 판매금액 구성비가 높은 제품이, 다른 채널에서는 그 30% 미만이거나 판매가 없는 경우예요. 구성비 = 그 채널 전체 판매금액 중 이 제품의 비중. 강한 채널 구성비가 높은 순서예요.</p><div id="dT4"></div></div>
   </section>
 </main>
 
@@ -1094,7 +1132,7 @@ async function lookupCode(){
 $('lookupBtn').onclick = () => lookupCode().catch(e => $('lookupResult').replaceChildren(el('p', `조회하지 못했어요: ${e.message}`, 'msg err')));
 $('lookupCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookupBtn').click(); });
 
-const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview']};
+const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview'], dash: ['viewDash', 'navDash']};
 function show(view){
   for (const [k, [sec, nav]] of Object.entries(VIEWS)){
     $(sec).classList.toggle('hide', k !== view);
@@ -1102,11 +1140,14 @@ function show(view){
   }
   if (view === 'status') loadStatus();
   if (view === 'review') loadReview();
+  if (view === 'dash') loadDash();
 }
 $('navUpload').onclick = () => show('upload');
 $('navStatus').onclick = () => show('status');
 $('navReview').onclick = () => show('review');
+$('navDash').onclick = () => show('dash');
 renderTabs();
 </script>
+<script src="dash.js"></script>
 </body>
 </html>
