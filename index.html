@@ -117,7 +117,7 @@ td.n,th.n{text-align:right}
       <h2 id="reviewTitle"></h2>
       <p class="need" id="reviewNote"></p>
       <div id="reviewTable"></div>
-      <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><button class="sec" id="reviewCopy">이 리스트 복사</button><span class="sub" id="reviewCap"></span></div>
+      <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><button class="sec" id="reviewCopy">이 리스트 복사</button><button class="sec hide" id="reviewTemplate">매칭표 양식으로 복사</button><span class="sub" id="reviewCap"></span></div>
       <p id="reviewMsg" class="msg hide" style="margin-top:12px"></p>
     </div>
   </section>
@@ -727,7 +727,7 @@ async function loadStatus(){
 }
 // ---------- 검토 리스트 ----------
 const addDay = d => new Date(Date.parse(d) + 86400000).toISOString().slice(0, 10);
-function reviewData({pos, mapping, product, promo}){
+function reviewData({pos, mapping, product, promo, channels = []}){
   const posByCode = new Map();
   const posByDay = new Map();
   for (const p of pos){
@@ -817,8 +817,38 @@ function reviewData({pos, mapping, product, promo}){
 
   // 4. 매칭 누락, 5. 분류 누락
   const mapped = new Set(mapping.map(m => m.channel2 + '|' + m.code88));
-  const unmatched = [...posByCode.values()].filter(e => isSold(e) && !mapped.has(e.channel + '|' + e.code88))
-    .map(e => [e.channel, e.code88, e.name, e.qty, e.amount, e.first, e.last]).sort(cmp(r => r[0], r => -r[4]));
+  // 같은 88코드가 다른 채널 매칭표에 있으면 그 제품코드·전환수량을 제안한다
+  const mappingBy88 = new Map();
+  for (const m of mapping){
+    if (!mappingBy88.has(m.code88)) mappingBy88.set(m.code88, []);
+    mappingBy88.get(m.code88).push(m);
+  }
+  const suggest = (channel, code88) => {
+    const byCode = new Map();
+    for (const m of mappingBy88.get(code88) || []){
+      if (m.channel2 === channel) continue;
+      let s = byCode.get(m.productCode);
+      if (!s) byCode.set(m.productCode, s = {m, channels: new Set(), convs: new Set()});
+      s.channels.add(m.channel2);
+      s.convs.add(m.conv == null ? '' : m.conv);
+    }
+    if (!byCode.size) return null;
+    const ranked = [...byCode.values()].sort((a, b) => b.channels.size - a.channels.size);
+    const top = ranked[0];
+    let basis = ranked.length === 1 ? `다른 채널 ${top.channels.size}곳에서 같은 제품코드` : '채널마다 다름: ' + ranked.map(s => `${s.m.productCode}(${s.channels.size}곳)`).join(', ');
+    if (top.convs.size > 1) basis += ' / 전환수량이 채널마다 달라 비워 둠';
+    return {code: top.m.productCode, name: top.m.productName, conv: top.convs.size === 1 ? [...top.convs][0] : '', basis};
+  };
+  const chInfo = new Map(channels.map(c => [c.channel2, c]));
+  const unmatchedSrc = [...posByCode.values()].filter(e => isSold(e) && !mapped.has(e.channel + '|' + e.code88))
+    .sort(cmp(e => e.channel, e => -e.amount));
+  const unmatched = [], unmatchedTemplate = [];
+  for (const e of unmatchedSrc){
+    const s = suggest(e.channel, e.code88) || {code: '', name: '', conv: '', basis: '다른 채널에도 없음'};
+    unmatched.push([e.channel, e.code88, e.name, e.qty, e.amount, e.first, e.last, s.code, s.name, s.conv, s.basis]);
+    const ci = chInfo.get(e.channel) || {};
+    unmatchedTemplate.push([ci.team || '', ci.channel || '', e.channel, s.code ? e.channel + s.code : '', e.channel + e.code88, '1', e.code88, e.name, s.code, s.name, '', s.conv]);
+  }
   const known = new Set(product.map(p => p.productCode));
   const missing = new Map();
   for (const m of soldMapping){
@@ -844,8 +874,9 @@ function reviewData({pos, mapping, product, promo}){
      heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', '전환수량', 'POS 판매수량', '낱개 환산 수량', 'POS 판매금액', '평균 단가', '낱개 단가', '상태'], numeric: [5, 6, 7, 8, 9, 10], rows: bundle},
     {id: 'gaps', name: '행사차수 누락', note: '판매수량이 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요.',
      heads: ['채널', '비고', '시작일', '종료일', '일수', 'POS 건수', '판매수량'], numeric: [4, 5, 6], rows: gaps},
-    {id: 'unmatched', name: '매칭 누락', note: '판매수량이 있는데 88코드 매칭표에 없는 채널·코드예요. 채널 안에서 판매금액이 큰 순서로 보여 줘요.',
-     heads: ['채널', '88코드', 'POS 제품명', '판매수량', '판매금액', '첫 판매일', '최근 판매일'], numeric: [3, 4], rows: unmatched},
+    {id: 'unmatched', name: '매칭 누락', note: '판매수량이 있는데 88코드 매칭표에 없는 채널·코드예요. 채널 안에서 판매금액이 큰 순서로 보여 줘요. 같은 88코드가 다른 채널 매칭표에 있으면 제안 제품코드와 전환수량을 보여 줘요. 제안은 참고용이니 맞는지 확인해 주세요. "매칭표 양식으로 복사"를 누르면 매칭표와 같은 열 순서로 복사돼요. 엑셀에서 빈칸을 채워 3번 매칭표에 추가·수정으로 올리면 돼요. 분석할 필요가 없는 코드는 제품코드에 "제외코드"라고 넣어 주세요.',
+     heads: ['채널', '88코드', 'POS 제품명', '판매수량', '판매금액', '첫 판매일', '최근 판매일', '제안 제품코드', '제안 제품명', '제안 전환수량', '제안 근거'], numeric: [3, 4], rows: unmatched,
+     template: {name: '매칭 누락 양식', heads: ['팀', '채널', '채널2', '구분1(SAP)', '구분2(88)', 'POS 발생 유무', '88코드', 'EAN제품명', '제품코드', '제품명', '계약단가', '전환수량'], rows: unmatchedTemplate}},
     {id: 'unclassified', name: '분류 누락', note: '판매수량이 있는데 제품분류표에 없는 제품코드예요.',
      heads: ['제품코드', '제품명', '채널', 'POS 판매수량'], numeric: [3], rows: unclassified},
     {id: 'posNames', name: 'POS 제품명 불일치', note: '한 채널에서 같은 88코드인데 POS RAW의 제품명이 다르게 들어온 경우예요. 이름별로 1행씩, 처음 나온 날짜 순서로 보여 줘요. 띄어쓰기와 영문 대소문자만 다른 이름은 같은 이름으로 봤어요. 판매수량이 있는 코드만 보여 줘요. 개당 단가는 판매금액 ÷ 판매수량이고, 금액 기준은 채널별로 달라요.',
@@ -854,7 +885,10 @@ function reviewData({pos, mapping, product, promo}){
 }
 function reviewWorkbook(lists){
   const wb = XLSX.utils.book_new();
-  for (const l of lists) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([l.heads, ...l.rows]), l.name.replace('·', ' '));
+  for (const l of lists){
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([l.heads, ...l.rows]), l.name.replace('·', ' '));
+    if (l.template) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([l.template.heads, ...l.template.rows]), l.template.name);
+  }
   return XLSX.write(wb, {type: 'array', bookType: 'xlsx'});
 }
 const REVIEW_LIMIT = 1000;
@@ -871,6 +905,7 @@ function renderReview(){
   $('reviewNote').textContent = l.note;
   if (!l.rows.length) $('reviewTable').replaceChildren(el('p', '해당되는 항목이 없어요.', 'sub'));
   else table($('reviewTable'), l.heads, l.rows.slice(0, REVIEW_LIMIT).map(r => r.map((v, i) => l.numeric.includes(i) && v !== '' ? fmt(v) : v)), i => l.numeric.includes(i));
+  $('reviewTemplate').classList.toggle('hide', !l.template);
   $('reviewCap').textContent = l.rows.length > REVIEW_LIMIT ? `화면에는 ${fmt(REVIEW_LIMIT)}행까지 보여요. 전체는 엑셀로 확인하세요.` : '';
 }
 async function loadReview(){
@@ -879,12 +914,12 @@ async function loadReview(){
   $('reviewTable').replaceChildren();
   reviewLists = [];
   reviewMessage('');
-  $('reviewDownload').disabled = $('reviewCopy').disabled = true;
+  $('reviewDownload').disabled = $('reviewCopy').disabled = $('reviewTemplate').disabled = true;
   try {
-    const [pos, mapping, product, promo] = await Promise.all(['pos', 'mapping', 'product', 'promo'].map(getAll));
-    reviewLists = reviewData({pos, mapping, product, promo});
+    const [pos, mapping, product, promo, channels] = await Promise.all(['pos', 'mapping', 'product', 'promo', 'channels'].map(getAll));
+    reviewLists = reviewData({pos, mapping, product, promo, channels});
     renderReview();
-    $('reviewDownload').disabled = $('reviewCopy').disabled = false;
+    $('reviewDownload').disabled = $('reviewCopy').disabled = $('reviewTemplate').disabled = false;
   } catch (e) {
     console.error(e);
     $('reviewTitle').textContent = '리스트를 계산하지 못했어요';
@@ -926,6 +961,17 @@ $('reviewCopy').onclick = async () => {
   try {
     await navigator.clipboard.writeText(listToTsv(l));
     reviewMessage(`${l.name} ${fmt(l.rows.length)}행을 복사했어요. 엑셀에서 Ctrl+V 하세요. ${CODE_TIP}`, 'ok');
+  } catch (e) {
+    reviewMessage(`복사하지 못했어요. 원인: ${e.message}`, 'err');
+  }
+};
+
+$('reviewTemplate').onclick = async () => {
+  const l = reviewLists[reviewIndex];
+  if (!l || !l.template) return;
+  try {
+    await navigator.clipboard.writeText(listToTsv(l.template));
+    reviewMessage(`${fmt(l.template.rows.length)}행을 매칭표 양식으로 복사했어요. 엑셀에 붙여넣고 제품코드·전환수량을 확인하거나 채운 뒤, 3번 매칭표에 추가·수정으로 올려 주세요. 제품코드가 빈 행은 오류로 빠져요. ${CODE_TIP}`, 'ok');
   } catch (e) {
     reviewMessage(`복사하지 못했어요. 원인: ${e.message}`, 'err');
   }
