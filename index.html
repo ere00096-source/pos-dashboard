@@ -393,21 +393,29 @@ function parseRows(ds, sheets, channels){
   return {rows, errors, errorTotal, used, ctx, warnings};
 }
 function dedupe(ds, rows, ctx){
+  if (ds.id === 'mapping'){
+    // 매칭표는 사용자가 직접 정리한 기준표라 합치거나 지우지 않는다.
+    // 채널·88코드·제품코드·전환수량이 같은 행은 순번(#1, #2…)을 붙여 모두 저장한다.
+    const occ = new Map();
+    let repeated = 0;
+    for (const r of rows){
+      const n = (occ.get(r.id) || 0) + 1;
+      occ.set(r.id, n);
+      if (n > 1) repeated++;
+      r.id = `${r.id}|#${n}`;
+    }
+    if (repeated) ctx.warn('채널·88코드·제품코드·전환수량이 같은 행 (합치지 않고 모두 저장)', repeated);
+    return rows;
+  }
   const map = new Map();
-  let same = 0, conflict = 0, merged = 0, nameOnly = 0;
+  let same = 0, conflict = 0, merged = 0;
   for (const r of rows){
     const old = map.get(r.id);
     if (!old){ map.set(r.id, r); continue; }
     if (ds.id === 'pos'){ old.qty += r.qty; old.amount += r.amount; merged++; }
     else if (JSON.stringify(old) === JSON.stringify(r)) same++;
-    else if (ds.id === 'mapping'){
-      // 채널·88코드·제품코드·전환수량이 같으면 1행으로 합친다. 빈 값은 다른 행의 값으로 채운다.
-      for (const k of Object.keys(r)) if ((old[k] === '' || old[k] == null) && r[k] !== '' && r[k] != null) old[k] = r[k];
-      nameOnly++;
-    }
     else conflict++;
   }
-  if (nameOnly) ctx.warn('채널·88코드·제품코드·전환수량이 같아 1행으로 합친 행 (제품명 등만 다름, 정상)', nameOnly);
   if (merged) ctx.warn('같은 채널·날짜·88코드가 반복되어 수량과 금액을 합친 행 (같은 자료를 두 번 붙여넣었다면 취소하세요)', merged);
   if (same) ctx.warn('완전히 같은 중복 행을 1개로 정리', same);
   if (conflict) ctx.warn('같은 키인데 내용이 다른 행 (첫 행만 사용)', conflict);
@@ -449,21 +457,21 @@ const STORES = DATASETS.map(d => d.id);
 let dbPromise;
 function db(){
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('pos-data', 2);
+    const req = indexedDB.open('pos-data', 3);
     req.onupgradeneeded = e => {
       if (e.oldVersion < 1){
         for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
         req.result.createObjectStore('uploads', {keyPath: 'seq', autoIncrement: true});
         return;
       }
-      if (e.oldVersion < 2){
-        // 매칭표 저장 키에 전환수량을 넣는다
+      if (e.oldVersion < 3){
+        // 매칭표 저장 키를 채널|88코드|제품코드|전환수량|#순번 형식으로 맞춘다
         const st = req.transaction.objectStore('mapping');
         st.openCursor().onsuccess = ev => {
           const cur = ev.target.result;
           if (!cur) return;
           const m = cur.value;
-          const id = mappingId(m.channel2, m.code88, m.productCode, m.conv);
+          const id = m.id.includes('|#') ? m.id : `${mappingId(m.channel2, m.code88, m.productCode, m.conv)}|#1`;
           if (id !== m.id){ cur.delete(); st.put({...m, id}); }
           cur.continue();
         };
