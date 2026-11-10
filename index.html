@@ -208,9 +208,9 @@ const DATASETS = [
    preview:[['년','year'],['월','month'],['차수','round'],['행사시작일','start'],['행사종료일','end'],['행사기간','days'],['팀','team'],['채널','channel'],['차수명','roundLabel']],
    exportCols:[['년','year'],['월','month'],['차수','round'],['행사시작일','start'],['행사종료일','end'],['행사기간','days'],['팀','team'],['채널','channel'],['차수','roundLabel']]},
   {id:'mapping', name:'3. 88코드 매칭표', note:'채널별 88코드 ↔ 제품코드', label:'88코드 매칭표',
-   columns:[['team','팀',0,1],['channel','채널',0,1],['channel2','채널2',0,1],['hasPos','POS 발생 유무',0,0],['code88','88코드',0,1],['eanName','EAN제품명',0,0],['productCode','제품코드',0,1],['productName','제품명',0,0]],
-   preview:[['채널2','channel2'],['88코드','code88'],['제품코드','productCode'],['팀','team'],['채널','channel'],['POS발생','hasPos'],['EAN제품명','eanName'],['제품명','productName']],
-   exportCols:[['팀','team'],['채널','channel'],['채널2','channel2'],['POS 발생 유무','hasPos'],['88코드','code88'],['EAN제품명','eanName'],['제품코드','productCode'],['제품명','productName']]},
+   columns:[['team','팀',0,1],['channel','채널',0,1],['channel2','채널2',0,1],['hasPos','POS 발생 유무',0,0],['code88','88코드',0,1],['eanName','EAN제품명',0,0],['productCode','제품코드',0,1],['productName','제품명',0,0],['conv','전환수량',0,0]],
+   preview:[['채널2','channel2'],['88코드','code88'],['제품코드','productCode'],['팀','team'],['채널','channel'],['POS발생','hasPos'],['EAN제품명','eanName'],['제품명','productName'],['전환수량','conv']],
+   exportCols:[['팀','team'],['채널','channel'],['채널2','channel2'],['POS 발생 유무','hasPos'],['88코드','code88'],['EAN제품명','eanName'],['제품코드','productCode'],['제품명','productName'],['전환수량','conv']]},
   {id:'product', name:'4. 제품분류표', note:'대·소분류, 과세 구분', label:'제품분류표',
    columns:[['productCode','제품번호',0,1],['productName','제품번호 Name',0,0],['major','대카테고리(기획실)',0,1],['minor','소카테고리(기획실)',0,1],['taxType','과세면세',0,0],['taxFactor','과세면세',1,0]],
    preview:[['제품번호','productCode'],['제품명','productName'],['대카테고리','major'],['소카테고리','minor'],['과세면세','taxType'],['계수','taxFactor']],
@@ -247,7 +247,15 @@ const CONVERT = {
     if (!channel2) throw new RowError('채널2 없음');
     if (ctx.channels.size && !ctx.channels.has(channel2)) ctx.warn(`채널 기준에 없는 채널: ${channel2}`);
     const code88 = code(c.code88, '88코드'), productCode = code(c.productCode, '제품코드');
-    return {id: `${channel2}|${code88}|${productCode}`, channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName)};
+    let conv = null;
+    if ('conv' in c){
+      if (text(c.conv) === '') ctx.warn('전환수량이 비어 있는 행');
+      else {
+        conv = number(c.conv, '전환수량');
+        if (!(conv > 0)) throw new RowError(`전환수량은 0보다 커야 해요: ${conv}`);
+      }
+    }
+    return {id: `${channel2}|${code88}|${productCode}`, channel2, code88, productCode, team: text(c.team), channel: text(c.channel), hasPos: text(c.hasPos), eanName: text(c.eanName), productName: text(c.productName), conv};
   },
   product(c){
     const productCode = code(c.productCode, '제품번호');
@@ -322,7 +330,11 @@ async function fileSheets(file){
 }
 
 // ---------- 행 변환 ----------
-const normHeader = v => text(v).replace(/\s+/g, '').toLowerCase();
+// 88코드와 EAN코드는 같은 열로 본다
+const normHeader = v => {
+  const s = text(v).replace(/\s+/g, '').toLowerCase();
+  return s === 'ean코드' ? '88코드' : s;
+};
 function locateColumns(row, ds){
   const pos = new Map();
   row.forEach((cell, i) => {
