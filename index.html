@@ -671,10 +671,14 @@ async function loadStatus(){
   }));
   const mapped = new Set(mapping.map(m => m.channel2 + '|' + m.code88));
   const known = new Set(product.map(p => p.productCode));
-  const posCodes = new Set(pos.map(p => p.channel + '|' + p.code88));
+  const codeQty = new Map();
+  for (const p of pos){
+    const k = p.channel + '|' + p.code88;
+    codeQty.set(k, (codeQty.get(k) || 0) + p.qty);
+  }
   let unmatched = 0;
-  for (const k of posCodes) if (!mapped.has(k)) unmatched++;
-  const unclassified = new Set(mapping.filter(m => !known.has(m.productCode)).map(m => m.productCode)).size;
+  for (const [k, q] of codeQty) if (q !== 0 && !mapped.has(k)) unmatched++;
+  const unclassified = new Set(mapping.filter(m => codeQty.get(m.channel2 + '|' + m.code88) && !known.has(m.productCode)).map(m => m.productCode)).size;
   let min = null, max = null;
   const cells = new Map();
   for (const p of pos){
@@ -685,8 +689,8 @@ async function loadStatus(){
   }
   $('links').replaceChildren(
     el('p', `POS 기간: ${min ? min + ' ~ ' + max : '아직 없음'}`),
-    el('p', `매칭표에 없는 POS 88코드: ${fmt(unmatched)}개 (채널별 코드 기준)`),
-    el('p', `제품분류표에 없는 제품코드: ${fmt(unclassified)}개`),
+    el('p', `매칭표에 없는 POS 88코드: ${fmt(unmatched)}개 (판매수량이 있는 채널별 코드 기준)`),
+    el('p', `제품분류표에 없는 제품코드: ${fmt(unclassified)}개 (판매수량이 있는 코드 기준)`),
   );
   const months = [...new Set([...cells.keys()].map(k => k.split('|')[1]))].sort();
   const chans = [...new Set([...cells.keys()].map(k => k.split('|')[0]))].sort();
@@ -734,28 +738,31 @@ function reviewData({pos, mapping, product, promo}){
   }
   const avg = (amount, qty) => qty ? Math.round(amount / qty) : '';
   const cmp = (...keys) => (a, b) => { for (const f of keys){ const x = f(a), y = f(b); if (x < y) return -1; if (x > y) return 1; } return 0; };
+  // 실제 판매수량이 있는 88코드만 검토 대상으로 본다
+  const isSold = e => !!e && e.qty !== 0;
+  const soldMapping = mapping.filter(m => isSold(posByCode.get(m.channel2 + '|' + m.code88)));
 
   // 1. 리뉴얼 코드: 같은 88코드가 제품코드 여러 개로 잡힘
   const by88 = new Map();
   const perChannel = new Map();
-  for (const m of mapping){
+  for (const m of soldMapping){
     if (!by88.has(m.code88)) by88.set(m.code88, new Set());
     by88.get(m.code88).add(m.productCode);
     const k = m.channel2 + '|' + m.code88;
     perChannel.set(k, (perChannel.get(k) || 0) + 1);
   }
   const renewal = [];
-  for (const m of mapping){
+  for (const m of soldMapping){
     if (by88.get(m.code88).size < 2) continue;
     const k = m.channel2 + '|' + m.code88;
     const e = posByCode.get(k);
-    renewal.push([m.code88, m.eanName, m.productCode, m.productName, m.channel2, perChannel.get(k) > 1 ? 'Y' : '', e ? e.qty : 0, e ? e.last : '']);
+    renewal.push([m.code88, m.eanName, m.productCode, m.productName, m.channel2, perChannel.get(k) > 1 ? 'Y' : '', e.qty, e.last]);
   }
   renewal.sort(cmp(r => r[0], r => r[2], r => r[4]));
 
   // 2. 묶음·낱개: 한 채널에서 제품코드 1개에 88코드 여러 개
   const byProduct = new Map();
-  for (const m of mapping){
+  for (const m of soldMapping){
     const k = m.channel2 + '|' + m.productCode;
     if (!byProduct.has(k)) byProduct.set(k, []);
     byProduct.get(k).push(m);
@@ -764,8 +771,10 @@ function reviewData({pos, mapping, product, promo}){
   for (const list of byProduct.values()){
     if (new Set(list.map(m => m.code88)).size < 2) continue;
     for (const m of list){
-      const e = posByCode.get(m.channel2 + '|' + m.code88) || {qty: 0, amount: 0};
-      bundle.push([m.channel2, m.productCode, m.productName, m.code88, m.eanName, e.qty, e.amount, avg(e.amount, e.qty)]);
+      const e = posByCode.get(m.channel2 + '|' + m.code88);
+      const hasConv = m.conv != null;
+      const base = hasConv ? e.qty * m.conv : '';
+      bundle.push([m.channel2, m.productCode, m.productName, m.code88, m.eanName, hasConv ? m.conv : '', e.qty, base, e.amount, avg(e.amount, e.qty), hasConv ? avg(e.amount, base) : '', hasConv ? '' : '전환수량 없음']);
     }
   }
   bundle.sort(cmp(r => r[0], r => r[1], r => r[3]));
@@ -782,8 +791,9 @@ function reviewData({pos, mapping, product, promo}){
     let cur = null;
     const flush = () => { if (cur) gaps.push([channel, list.length ? '' : '행사차수 없음', cur.start, cur.end, cur.days, cur.rows, cur.qty]); cur = null; };
     for (const d of [...days.keys()].sort()){
-      if (list.some(s => s.start <= d && d <= s.end)) { flush(); continue; }
       const v = days.get(d);
+      if (v.qty === 0) continue;
+      if (list.some(s => s.start <= d && d <= s.end)) { flush(); continue; }
       if (cur && addDay(cur.end) === d){ cur.end = d; cur.days++; cur.rows += v.rows; cur.qty += v.qty; }
       else { flush(); cur = {start: d, end: d, days: 1, rows: v.rows, qty: v.qty}; }
     }
@@ -793,28 +803,29 @@ function reviewData({pos, mapping, product, promo}){
 
   // 4. 매칭 누락, 5. 분류 누락
   const mapped = new Set(mapping.map(m => m.channel2 + '|' + m.code88));
-  const unmatched = [...posByCode.values()].filter(e => !mapped.has(e.channel + '|' + e.code88))
+  const unmatched = [...posByCode.values()].filter(e => isSold(e) && !mapped.has(e.channel + '|' + e.code88))
     .map(e => [e.channel, e.code88, e.name, e.qty, e.amount, e.first, e.last]).sort(cmp(r => r[0], r => -r[4]));
   const known = new Set(product.map(p => p.productCode));
   const missing = new Map();
-  for (const m of mapping){
+  for (const m of soldMapping){
     if (known.has(m.productCode)) continue;
-    if (!missing.has(m.productCode)) missing.set(m.productCode, {name: m.productName, channels: new Set()});
-    missing.get(m.productCode).channels.add(m.channel2);
+    const k = m.productCode + '|' + m.channel2;
+    if (!missing.has(k)) missing.set(k, [m.productCode, m.productName, m.channel2, 0]);
+    missing.get(k)[3] += posByCode.get(m.channel2 + '|' + m.code88).qty;
   }
-  const unclassified = [...missing].map(([c, v]) => [c, v.name, [...v.channels].sort().join(', ')]).sort(cmp(r => r[0]));
+  const unclassified = [...missing.values()].sort(cmp(r => r[0], r => r[2]));
 
   return [
-    {id: 'renewal', name: '리뉴얼 코드', note: '같은 88코드가 제품코드 여러 개로 잡힌 경우예요. 어떻게 처리할지 코드별로 알려 주세요. 처리 전에는 합치지 않아요. "같은 채널 복수"가 Y이면 한 채널에서도 제품코드가 갈려서, 판매수량이 두 행에 모두 포함돼 있어요.',
+    {id: 'renewal', name: '리뉴얼 코드', note: '판매수량이 있는 코드 중에서 같은 88코드가 제품코드 여러 개로 잡힌 경우예요. 어떻게 처리할지 코드별로 알려 주세요. 처리 전에는 합치지 않아요. "같은 채널 복수"가 Y이면 한 채널에서도 제품코드가 갈려서, 판매수량이 두 행에 모두 포함돼 있어요.',
      heads: ['88코드', 'EAN제품명', '제품코드', '제품명', '채널', '같은 채널 복수', 'POS 판매수량', '최근 판매일'], numeric: [6], rows: renewal},
-    {id: 'bundle', name: '묶음·낱개', note: '한 채널에서 제품코드 1개에 88코드가 여러 개인 경우예요. 평균 단가로 묶음과 낱개를 구분해 보세요. 금액 기준은 채널별로 달라요.',
-     heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', 'POS 판매수량', 'POS 판매금액', '평균 단가'], numeric: [5, 6, 7], rows: bundle},
-    {id: 'gaps', name: '행사차수 누락', note: 'POS가 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요.',
+    {id: 'bundle', name: '묶음·낱개', note: '판매수량이 있는 코드 중에서 한 채널의 제품코드 1개에 88코드가 여러 개인 경우예요. 낱개 환산 수량은 판매수량 × 전환수량이에요. 낱개 단가가 코드끼리 크게 다르면 전환수량을 확인해 보세요. 금액 기준은 채널별로 달라요.',
+     heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', '전환수량', 'POS 판매수량', '낱개 환산 수량', 'POS 판매금액', '평균 단가', '낱개 단가', '상태'], numeric: [5, 6, 7, 8, 9, 10], rows: bundle},
+    {id: 'gaps', name: '행사차수 누락', note: '판매수량이 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요.',
      heads: ['채널', '비고', '시작일', '종료일', '일수', 'POS 건수', '판매수량'], numeric: [4, 5, 6], rows: gaps},
-    {id: 'unmatched', name: '매칭 누락', note: 'POS에는 있는데 88코드 매칭표에 없는 채널·코드예요. 판매금액이 큰 순서로 보여 줘요.',
+    {id: 'unmatched', name: '매칭 누락', note: '판매수량이 있는데 88코드 매칭표에 없는 채널·코드예요. 채널 안에서 판매금액이 큰 순서로 보여 줘요.',
      heads: ['채널', '88코드', 'POS 제품명', '판매수량', '판매금액', '첫 판매일', '최근 판매일'], numeric: [3, 4], rows: unmatched},
-    {id: 'unclassified', name: '분류 누락', note: '매칭표에는 있는데 제품분류표에 없는 제품코드예요.',
-     heads: ['제품코드', '제품명', '채널'], numeric: [], rows: unclassified},
+    {id: 'unclassified', name: '분류 누락', note: '판매수량이 있는데 제품분류표에 없는 제품코드예요.',
+     heads: ['제품코드', '제품명', '채널', 'POS 판매수량'], numeric: [3], rows: unclassified},
   ];
 }
 function reviewWorkbook(lists){
