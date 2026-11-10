@@ -856,11 +856,15 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   const gaps = [];
   for (const [channel, days] of posByDay){
     const list = spans.get(channel) || [];
+    // 첫 차수 시작 전은 관리 대상이 아니고, 마지막 차수 종료 후는 다음 차수를 올리면 채워진다
+    const first = list.length ? list.reduce((a, s) => s.start < a ? s.start : a, list[0].start) : '';
+    const last = list.length ? list.reduce((a, s) => s.end > a ? s.end : a, list[0].end) : '';
     let cur = null;
     const flush = () => { if (cur) gaps.push([channel, list.length ? '' : '행사차수 없음', cur.start, cur.end, cur.days, cur.rows, cur.qty]); cur = null; };
     for (const d of [...days.keys()].sort()){
       const v = days.get(d);
       if (v.qty === 0) continue;
+      if (list.length && (d < first || d > last)) { flush(); continue; }
       if (list.some(s => s.start <= d && d <= s.end)) { flush(); continue; }
       if (cur && addDay(cur.end) === d){ cur.end = d; cur.days++; cur.rows += v.rows; cur.qty += v.qty; }
       else { flush(); cur = {start: d, end: d, days: 1, rows: v.rows, qty: v.qty}; }
@@ -925,7 +929,7 @@ function reviewData({pos, mapping, product, promo, channels = []}){
      heads: ['88코드', 'EAN제품명', '제품코드', '제품명', '채널', '구분', 'POS 판매수량', '최근 판매일'], numeric: [6], rows: renewal},
     {id: 'bundle', name: '묶음·낱개', note: '판매수량이 있는 코드 중에서 한 채널의 제품코드 1개에 88코드가 여러 개인 경우예요. 낱개 환산 수량은 판매수량 × 전환수량이에요. 낱개 단가가 코드끼리 크게 다르면 전환수량을 확인해 보세요. "전환수량 여러 개"는 같은 88코드에 전환수량만 다른 행이 있는 경우예요. POS에는 88코드만 있어서 판매수량이 그 행들에 똑같이 표시되고, 분석 때 어느 전환수량을 쓸지 정해야 해요. 금액 기준은 채널별로 달라요.',
      heads: ['채널', '제품코드', '제품명', '88코드', 'EAN제품명', '전환수량', 'POS 판매수량', '낱개 환산 수량', 'POS 판매금액', '평균 단가', '낱개 단가', '상태'], numeric: [5, 6, 7, 8, 9, 10], rows: bundle},
-    {id: 'gaps', name: '행사차수 누락', note: '판매수량이 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요.',
+    {id: 'gaps', name: '행사차수 누락', note: '판매수량이 있는데 해당 채널의 어느 행사차수에도 들어가지 않는 날짜 구간이에요. 채널마다 첫 차수 시작일 이전(관리 대상 아님)과 마지막 차수 종료일 이후(다음 차수를 올리면 채워짐)는 빼고, 차수 사이에 빈 날짜만 보여 줘요. "행사차수 없음"은 그 채널의 행사차수가 아예 없는 경우예요.',
      heads: ['채널', '비고', '시작일', '종료일', '일수', 'POS 건수', '판매수량'], numeric: [4, 5, 6], rows: gaps},
     {id: 'unmatched', name: '매칭 누락', note: '판매수량이 있는데 88코드 매칭표에 없는 채널·코드예요. 채널 안에서 판매금액이 큰 순서로 보여 줘요. 같은 88코드가 다른 채널 매칭표에 있으면 제안 제품코드와 전환수량을 보여 줘요. 제안은 참고용이니 맞는지 확인해 주세요. "매칭표 양식으로 복사"를 누르면 매칭표와 같은 열 순서로 복사돼요. 엑셀에서 빈칸을 채워 3번 매칭표에 추가·수정으로 올리면 돼요. 분석할 필요가 없는 코드는 제품코드에 "제외코드"라고 넣어 주세요.',
      heads: ['채널', '88코드', 'POS 제품명', '판매수량', '판매금액', '첫 판매일', '최근 판매일', '제안 제품코드', '제안 제품명', '제안 전환수량', '제안 근거'], numeric: [3, 4], rows: unmatched,
