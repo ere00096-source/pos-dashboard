@@ -853,11 +853,11 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   const missing = new Map();
   for (const m of soldMapping){
     if (known.has(m.productCode)) continue;
-    const k = m.productCode + '|' + m.channel2;
-    if (!missing.has(k)) missing.set(k, [m.productCode, m.productName, m.channel2, 0]);
-    missing.get(k)[3] += posByCode.get(m.channel2 + '|' + m.code88).qty;
+    const k = m.productCode + '|' + m.channel2 + '|' + m.code88;
+    if (!missing.has(k)) missing.set(k, [m.productCode, m.productName, m.channel2, m.code88, m.eanName, 0]);
+    missing.get(k)[5] += posByCode.get(m.channel2 + '|' + m.code88).qty;
   }
-  const unclassified = [...missing.values()].sort(cmp(r => r[0], r => r[2]));
+  const unclassified = [...missing.values()].sort(cmp(r => r[0], r => r[2], r => r[3]));
 
   // 6. POS 제품명 불일치: 한 채널에서 같은 88코드에 POS 제품명이 여러 개
   const posNames = [];
@@ -878,7 +878,7 @@ function reviewData({pos, mapping, product, promo, channels = []}){
      heads: ['채널', '88코드', 'POS 제품명', '판매수량', '판매금액', '첫 판매일', '최근 판매일', '제안 제품코드', '제안 제품명', '제안 전환수량', '제안 근거'], numeric: [3, 4], rows: unmatched,
      template: {name: '매칭 누락 양식', heads: ['팀', '채널', '채널2', '구분1(SAP)', '구분2(88)', 'POS 발생 유무', '88코드', 'EAN제품명', '제품코드', '제품명', '계약단가', '전환수량'], rows: unmatchedTemplate}},
     {id: 'unclassified', name: '분류 누락', note: '판매수량이 있는데 제품분류표에 없는 제품코드예요.',
-     heads: ['제품코드', '제품명', '채널', 'POS 판매수량'], numeric: [3], rows: unclassified},
+     heads: ['제품코드', '제품명', '채널', '88코드', 'EAN제품명', 'POS 판매수량'], numeric: [5], rows: unclassified},
     {id: 'posNames', name: 'POS 제품명 불일치', note: '한 채널에서 같은 88코드인데 POS RAW의 제품명이 다르게 들어온 경우예요. 이름별로 1행씩, 처음 나온 날짜 순서로 보여 줘요. 띄어쓰기와 영문 대소문자만 다른 이름은 같은 이름으로 봤어요. 판매수량이 있는 코드만 보여 줘요. 개당 단가는 판매금액 ÷ 판매수량이고, 금액 기준은 채널별로 달라요.',
      heads: ['채널', '88코드', 'POS 제품명', 'POS 건수', '판매수량', '판매금액', '개당 단가', '첫 판매일', '최근 판매일'], numeric: [3, 4, 5, 6], rows: posNames},
   ];
