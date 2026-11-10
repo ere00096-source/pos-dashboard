@@ -112,6 +112,12 @@ td.n,th.n{text-align:right}
   </section>
 
   <section id="viewReview" class="hide">
+    <div class="card">
+      <h2>88코드 조회</h2>
+      <p class="need">88코드를 넣으면 매칭표와 POS에 어느 채널로 어떻게 저장돼 있는지, 매칭이 안 되면 그 이유를 보여 줘요. "채널명8800000000000"처럼 채널명이 앞에 붙어 있어도 돼요.</p>
+      <div class="actions" style="margin-top:0"><input id="lookupCode" placeholder="88코드 입력" style="padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit;min-width:260px;max-width:100%"><button class="main" id="lookupBtn">조회</button></div>
+      <div id="lookupResult" style="margin-top:12px"></div>
+    </div>
     <div class="tabs" id="reviewTabs"></div>
     <div class="card">
       <h2 id="reviewTitle"></h2>
@@ -1023,6 +1029,60 @@ $('reviewTemplate').onclick = async () => {
     reviewMessage(`복사하지 못했어요. 원인: ${e.message}`, 'err');
   }
 };
+
+// ---------- 88코드 조회 ----------
+const looseName = s => String(s).replace(/[\s\u00a0\u2010-\u2015\u2212\uff0d_-]/g, '').toLowerCase();
+async function lookupCode(){
+  const out = $('lookupResult');
+  out.replaceChildren();
+  const runs = text($('lookupCode').value).match(/\d{3,}/g);
+  if (!runs){ out.append(el('p', '88코드 숫자를 입력해 주세요.', 'msg err')); return; }
+  const c = runs.sort((a, b) => b.length - a.length)[0];
+  const [mapping, pos, product] = await Promise.all(['mapping', 'pos', 'product'].map(getAll));
+  const maps = mapping.filter(m => m.code88 === c);
+  const known = new Set(product.map(p => p.productCode));
+  const posAgg = new Map();
+  for (const p of pos){
+    if (p.code88 !== c) continue;
+    const e = posAgg.get(p.channel) || {rows: 0, qty: 0, amount: 0, name: p.name};
+    e.rows++; e.qty += p.qty; e.amount += p.amount;
+    posAgg.set(p.channel, e);
+  }
+  out.append(el('p', `조회한 코드: ${c}`, 'sub'));
+  const verdicts = el('ul');
+  if (!posAgg.size) verdicts.append(el('li', 'POS RAW에 이 88코드의 판매가 없어요.'));
+  for (const [ch, e] of posAgg){
+    const same = maps.filter(m => m.channel2 === ch);
+    let msg;
+    if (same.length){
+      if (same.some(m => m.excluded)) msg = `${ch}: 매칭표에서 "제외코드"로 지정돼 있어 검토·분석에서 빠져요.`;
+      else {
+        const codes = [...new Set(same.map(m => m.productCode))];
+        const unclassified = codes.filter(pc => !known.has(pc));
+        msg = `${ch}: 매칭돼 있어요 (제품코드 ${codes.join(', ')}).` + (unclassified.length ? ` 다만 제품분류표에 없는 제품코드가 있어요: ${unclassified.join(', ')}.` : '') + ' 매칭 누락에 보인다면 검토 리스트 메뉴를 다시 눌러 새로 계산해 보세요.';
+      }
+    } else {
+      const similar = maps.filter(m => looseName(m.channel2) === looseName(ch));
+      if (similar.length) msg = `${ch}: 매칭표의 채널2가 ${JSON.stringify(similar[0].channel2)}로 저장돼 있어, POS 채널명 ${JSON.stringify(ch)}과 글자가 달라요 (공백이나 하이픈 모양 등). 매칭표의 채널2를 POS와 똑같이 "${ch}"로 고쳐 다시 올려 주세요.`;
+      else if (maps.length) msg = `${ch}: 매칭표에 이 코드가 있지만 ${[...new Set(maps.map(m => m.channel2))].join(', ')} 채널 행뿐이고, ${ch} 채널 행은 없어요.`;
+      else msg = `${ch}: 매칭표에 이 88코드가 아예 없어요. 엑셀에는 있는데 여기 없다면 업로드할 때 오류로 빠졌을 수 있어요 (88코드가 8.8E+12처럼 깨졌거나, 전환수량이 글자인 경우 등). 그 행만 다시 올려 보면 저장 전 화면에 오류 이유가 나와요.`;
+    }
+    verdicts.append(el('li', msg));
+  }
+  const box = el('div', null, 'msg warn'); box.append(el('b', '판정'), verdicts); out.append(box);
+  if (maps.length){
+    out.append(el('p', `매칭표에 있는 행 ${fmt(maps.length)}개 (채널2는 공백이 보이도록 따옴표로 표시)`, 'sub'));
+    const h = el('div'); out.append(h);
+    table(h, ['채널2', '88코드', '제품코드', '제품명', '전환수량', '제외코드', '분류표'], maps.map(m => [JSON.stringify(m.channel2), m.code88, m.productCode, m.productName, m.conv == null ? '' : m.conv, m.excluded ? 'Y' : '', m.excluded ? '' : known.has(m.productCode) ? '있음' : '없음']));
+  } else out.append(el('p', '매칭표에 이 88코드가 있는 행이 없어요.', 'sub'));
+  if (posAgg.size){
+    out.append(el('p', 'POS RAW의 채널별 판매 (채널은 따옴표로 표시)', 'sub'));
+    const h = el('div'); out.append(h);
+    table(h, ['채널', 'POS 건수', '판매수량', '판매금액', 'POS 제품명'], [...posAgg].map(([ch, e]) => [JSON.stringify(ch), fmt(e.rows), fmt(e.qty), fmt(e.amount), e.name]), i => i >= 1 && i <= 3);
+  }
+}
+$('lookupBtn').onclick = () => lookupCode().catch(e => $('lookupResult').replaceChildren(el('p', `조회하지 못했어요: ${e.message}`, 'msg err')));
+$('lookupCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookupBtn').click(); });
 
 const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview']};
 function show(view){
