@@ -18,7 +18,7 @@ main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
 .notice{color:var(--sub);font-size:13px;margin:0 0 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px}
 .card h2{font-size:15px;margin:0 0 12px}
-.tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:16px}
 .tab{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;text-align:left;font:inherit;cursor:pointer;color:inherit}
 .tab.on{border-color:var(--pri);background:var(--pri-soft)}
 .tab b{display:block}
@@ -35,7 +35,7 @@ button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-
 button.link{background:none;border:0;color:var(--err);font:inherit;font-size:12px;cursor:pointer;padding:0}
 button:disabled{opacity:.5;cursor:default}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-#counts{grid-template-columns:repeat(5,1fr)}
+#counts{grid-template-columns:repeat(6,minmax(0,1fr))}
 .stat{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fff}
 .stat span{color:var(--sub);font-size:12px;display:block}
 .stat b{font-size:19px}
@@ -75,6 +75,7 @@ button.rowlink:hover{text-decoration:underline}
     <button id="navStatus">데이터 현황</button>
     <button id="navReview">검토 리스트</button>
     <button id="navDash">대시보드</button>
+    <button id="navListing">입점 제안</button>
   </nav>
 </header>
 <main>
@@ -84,6 +85,7 @@ button.rowlink:hover{text-decoration:underline}
     <div class="card">
       <h2 id="title"></h2>
       <p class="need" id="need"></p>
+      <div id="pnlMonthWrap" class="hide" style="margin:0 0 14px;max-width:260px"><label class="fld">기준월 (이 자료가 몇 월 것인지)<input type="month" id="pnlMonth"></label></div>
       <div class="inputs">
         <div class="zone" id="paste" tabindex="0">
           <b>여기를 클릭하고 Ctrl+V</b>
@@ -164,6 +166,23 @@ button.rowlink:hover{text-decoration:underline}
       <div id="dT3"></div>
     </div>
     <div class="card"><h2>확대 후보</h2><p class="need">선택한 기간에 한 채널에서 판매금액 구성비가 높은 제품이, 다른 채널에서는 그 30% 미만이거나 판매가 없는 경우예요. 구성비 = 그 채널 전체 판매금액 중 이 제품의 비중. 강한 채널 구성비가 높은 순서예요.</p><div id="dT4"></div></div>
+  </section>
+
+  <section id="viewListing" class="hide">
+    <div class="card">
+      <div class="filters">
+        <label class="fld">기간<select id="lMonth"></select></label>
+        <label class="fld">입점 대상 채널<select id="lTarget"></select></label>
+        <label class="fld">잘 팔린다 기준<select id="lTop"><option value="0.1">구성비 상위 10%</option><option value="0.2">상위 20%</option><option value="0.3" selected>상위 30%</option><option value="0.4">상위 40%</option><option value="0.5">상위 50%</option></select></label>
+        <label class="fld">제품 검색<input id="lQuery" placeholder="코드 또는 이름"></label>
+        <label class="fld">분배구분<select id="lGroup"></select></label>
+        <label class="fld">소분류<select id="lMinor"></select></label>
+      </div>
+      <p class="sub" id="lNotice" style="margin:12px 0 0"></p>
+    </div>
+    <div class="stats" id="lKpi"></div>
+    <div class="card"><h2>입점 제안</h2><p class="need">다른 채널에서 매출 구성비 상위권인데 이 채널에서는 운영하지 않는(행이 없거나 판매수량 0) 제품이에요. 예상 매출 = 잘 팔리는 채널의 구성비 × 입점 대상 채널 전체 총매출 (같은 비중으로 팔린다고 가정한 참고치). 공헌이익률은 잘 팔리는 채널 기준이에요. 예상 매출이 큰 순서예요.</p><div class="actions" style="margin:0 0 12px"><button class="sec" id="lCopy">이 표 복사</button><span class="sub" id="lMsg"></span></div><div id="lTable"></div></div>
+    <div class="card"><h2>제품 × 채널 운영 현황</h2><p class="need">칸 값은 그 채널의 매출 구성비예요. "–"는 운영하지 않는 경우예요. 총매출 합계가 큰 순서예요.</p><div id="lMatrix"></div></div>
   </section>
 </main>
 
@@ -264,10 +283,23 @@ const DATASETS = [
    columns:[['team','팀',0,1],['channel','채널',0,1],['date','날짜',0,1],['code88','88코드',0,1],['name','제품명',0,0],['qty','판매수량',0,1],['amount','판매금액',0,1]],
    preview:[['채널','channel'],['날짜','date'],['88코드','code88'],['팀','team'],['제품명','name'],['판매수량','qty'],['판매금액','amount']],
    exportCols:[['팀','team'],['채널','channel'],['날짜','date'],['88코드','code88'],['제품명','name'],['판매수량','qty'],['판매금액','amount']]},
+  {id:'pnl', name:'6. 채널 손익', note:'입점 제안용 월 손익', label:'채널 손익',
+   columns:[['month','기준월',0,0],['lv3Code','LV3코드',0,0],['lv3','LV3명',0,1],['group','분배구분',0,0],['minor','소분류',0,0],['productCode','제품코드',0,1],['productName','제품명',0,0],['factoryPrice','공장도가',0,0],['qty','판매수량',0,1],['gross','총매출',0,1],['net','납품가매출',0,0],['deduction','매출차감계',0,0],['cost','비용',0,0],['varCost','변동원가',0,0],['logistics','물류비',0,0],['contribution','공헌이익',0,0]],
+   preview:[['기준월','month'],['LV3명','lv3'],['제품코드','productCode'],['제품명','productName'],['소분류','minor'],['판매수량','qty'],['총매출','gross'],['공헌이익','contribution']],
+   previewNumericFrom: 5,
+   exportCols:[['기준월','month'],['LV3코드','lv3Code'],['LV3명','lv3'],['분배구분','group'],['소분류','minor'],['제품코드','productCode'],['제품명','productName'],['공장도가','factoryPrice'],['판매수량','qty'],['총매출','gross'],['납품가매출','net'],['매출차감계','deduction'],['비용','cost'],['변동원가','varCost'],['물류비','logistics'],['공헌이익','contribution']]},
 ];
 const byId = id => DATASETS.find(d => d.id === id);
 
 const EXCLUDED = '제외코드';
+// 기준월: '2026-10', '202610', '2026.10', 엑셀 날짜 모두 'YYYY-MM'으로
+function monthOf(v){
+  const d = fullDate(v);
+  if (d) return d.slice(0, 7);
+  const m = text(v).match(/^(\d{4})\D*(\d{1,2})/);
+  if (!m || +m[2] < 1 || +m[2] > 12) throw new RowError(`기준월 형식 오류: ${text(v)}`);
+  return `${m[1]}-${m[2].padStart(2, '0')}`;
+}
 // 매칭표는 채널·88코드·제품코드·전환수량이 모두 같아야 같은 행이다
 const mappingId = (channel2, code88, productCode, conv) => `${channel2}|${code88}|${productCode}|${conv == null ? '' : conv}`;
 const CONVERT = {
@@ -312,6 +344,17 @@ const CONVERT = {
     const productCode = code(c.productCode, '제품번호');
     const f = text(c.taxFactor);
     return {id: productCode, productCode, productName: text(c.productName), major: text(c.major), minor: text(c.minor), taxType: text(c.taxType), taxFactor: f ? number(f, '과세 계수') : null};
+  },
+  pnl(c, ctx){
+    const month = text(c.month) ? monthOf(c.month) : ctx.month;
+    if (!month) throw new RowError('기준월 없음');
+    const lv3 = text(c.lv3);
+    if (!lv3) throw new RowError('LV3명 없음');
+    const productCode = code(c.productCode, '제품코드');
+    const opt = (v, label) => text(v) === '' ? 0 : number(v, label);
+    return {id: `${month}|${lv3}|${productCode}`, month, lv3, lv3Code: text(c.lv3Code), group: text(c.group), minor: text(c.minor), productCode, productName: text(c.productName),
+      factoryPrice: opt(c.factoryPrice, '공장도가'), qty: number(c.qty, '판매수량'), gross: number(c.gross, '총매출'), net: opt(c.net, '납품가매출'), deduction: opt(c.deduction, '매출차감계'),
+      cost: opt(c.cost, '비용'), varCost: opt(c.varCost, '변동원가'), logistics: opt(c.logistics, '물류비'), contribution: opt(c.contribution, '공헌이익')};
   },
   pos(c, ctx){
     const channel = text(c.channel);
@@ -401,9 +444,9 @@ function locateColumns(row, ds){
   }
   return found;
 }
-function parseRows(ds, sheets, channels){
+function parseRows(ds, sheets, channels, extra = {}){
   const warnings = new Map();
-  const ctx = {channels, warn: (m, n = 1) => warnings.set(m, (warnings.get(m) || 0) + n)};
+  const ctx = {channels, ...extra, warn: (m, n = 1) => warnings.set(m, (warnings.get(m) || 0) + n)};
   const convert = CONVERT[ds.id];
   const rows = [], errors = [], used = [];
   let errorTotal = 0, firstSeen = null;
@@ -437,6 +480,18 @@ function parseRows(ds, sheets, channels){
   return {rows, errors, errorTotal, used, ctx, warnings};
 }
 function dedupe(ds, rows, ctx){
+  if (ds.id === 'pnl'){
+    const map = new Map();
+    let merged = 0;
+    for (const r of rows){
+      const old = map.get(r.id);
+      if (!old){ map.set(r.id, r); continue; }
+      for (const k of ['qty', 'gross', 'net', 'deduction', 'cost', 'varCost', 'logistics', 'contribution']) old[k] += r[k];
+      merged++;
+    }
+    if (merged) ctx.warn('같은 기준월·LV3명·제품코드가 반복되어 수치를 합친 행', merged);
+    return [...map.values()];
+  }
   if (ds.id === 'mapping'){
     // 매칭표는 사용자가 직접 정리한 기준표라 합치거나 지우지 않는다.
     // 채널·88코드·제품코드·전환수량이 같은 행은 순번(#1, #2…)을 붙여 모두 저장한다.
@@ -501,7 +556,7 @@ const STORES = DATASETS.map(d => d.id);
 let dbPromise;
 function db(){
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('pos-data', 3);
+    const req = indexedDB.open('pos-data', 4);
     req.onupgradeneeded = e => {
       if (e.oldVersion < 1){
         for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
@@ -520,6 +575,7 @@ function db(){
           cur.continue();
         };
       }
+      if (e.oldVersion < 4 && !req.result.objectStoreNames.contains('pnl')) req.result.createObjectStore('pnl', {keyPath: 'id'});
     };
     req.onblocked = () => reject(new UserError('이 사이트가 다른 탭에도 열려 있어요. 다른 탭을 모두 닫고 새로고침해 주세요.'));
     req.onsuccess = () => { req.result.onversionchange = () => req.result.close(); resolve(req.result); };
@@ -537,6 +593,7 @@ function saveRows(ds, rows, mode, source){
     const tx = conn.transaction([ds.id, 'uploads'], 'readwrite');
     const st = tx.objectStore(ds.id);
     if (mode === 'replace') st.clear();
+    if (mode === 'replaceMonth') for (const mo of new Set(rows.map(r => r.month))) st.delete(IDBKeyRange.bound(mo + '|', mo + '|\uffff'));
     for (const r of rows) st.put(r);
     tx.objectStore('uploads').add({ts: new Date().toISOString(), dataset: ds.id, source, rows: rows.length, mode});
     tx.oncomplete = () => resolve();
@@ -633,6 +690,8 @@ function renderTabs(){
     return b;
   }));
   $('title').textContent = current.name + ' 올리기';
+  $('pnlMonthWrap').classList.toggle('hide', current.id !== 'pnl');
+  if (!$('pnlMonth').value){ const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); $('pnlMonth').value = d.toISOString().slice(0, 7); }
   const need = $('need');
   need.replaceChildren('첫 줄에 필요한 제목: ');
   for (const c of current.columns) need.append(el('code', c[1]), ' ');
@@ -649,7 +708,8 @@ async function ingest(getSheets, source){
     if (ds.id === 'pos' && !channelRows.length) throw new UserError('먼저 "1. 채널 기준"을 올려 주세요.');
     const channels = new Map(channelRows.map(c => [c.channel2, c.basis]));
     const sheets = await getSheets();
-    const parsed = parseRows(ds, sheets, channels);
+    if (ds.id === 'pnl' && !$('pnlMonth').value) throw new UserError('기준월을 먼저 골라 주세요.');
+    const parsed = parseRows(ds, sheets, channels, {month: $('pnlMonth').value});
     const total = parsed.rows.length + parsed.errorTotal;
     const rows = dedupe(ds, parsed.rows, parsed.ctx);
     overlapWarnings(ds, rows, parsed.ctx);
@@ -687,11 +747,20 @@ function showPreview(){
     if (p.warnings.length > 30) ul.append(el('li', `외 ${fmt(p.warnings.length - 30)}종류`));
     m.append(ul); notes.append(m);
   }
-  const numeric = ds.id === 'pos' ? i => i >= 5 : null;
+  const numeric = ds.id === 'pos' ? i => i >= 5 : ds.previewNumericFrom ? i => i >= ds.previewNumericFrom : null;
   table($('sample'), ds.preview.map(c => c[0]), p.rows.slice(0, 15).map(r => ds.preview.map((c, i) => numeric && numeric(i) ? fmt(r[c[1]]) : r[c[1]])), numeric);
   const modes = $('modes');
   modes.replaceChildren();
-  if (ds.id !== 'pos'){
+  if (ds.id === 'pnl'){
+    const months = [...new Set(p.rows.map(r => r.month))].sort().join(', ');
+    const opt = (v, t, on) => {
+      const l = el('label'), r = el('input');
+      r.type = 'radio'; r.name = 'mode'; r.value = v; r.checked = on;
+      l.append(r, ' ' + t);
+      return l;
+    };
+    modes.append(opt('replaceMonth', `${months} 자료 교체 (그 달 기존 자료 삭제 후 저장)`, true), opt('merge', '추가·수정', false));
+  } else if (ds.id !== 'pos'){
     const opt = (v, t, on) => {
       const l = el('label'), r = el('input');
       r.type = 'radio'; r.name = 'mode'; r.value = v; r.checked = on;
@@ -1132,7 +1201,7 @@ async function lookupCode(){
 $('lookupBtn').onclick = () => lookupCode().catch(e => $('lookupResult').replaceChildren(el('p', `조회하지 못했어요: ${e.message}`, 'msg err')));
 $('lookupCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookupBtn').click(); });
 
-const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview'], dash: ['viewDash', 'navDash']};
+const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview'], dash: ['viewDash', 'navDash'], listing: ['viewListing', 'navListing']};
 function show(view){
   for (const [k, [sec, nav]] of Object.entries(VIEWS)){
     $(sec).classList.toggle('hide', k !== view);
@@ -1141,13 +1210,16 @@ function show(view){
   if (view === 'status') loadStatus();
   if (view === 'review') loadReview();
   if (view === 'dash') loadDash();
+  if (view === 'listing') loadListing();
 }
 $('navUpload').onclick = () => show('upload');
 $('navStatus').onclick = () => show('status');
 $('navReview').onclick = () => show('review');
 $('navDash').onclick = () => show('dash');
+$('navListing').onclick = () => show('listing');
 renderTabs();
 </script>
 <script src="dash.js"></script>
+<script src="listing.js"></script>
 </body>
 </html>
