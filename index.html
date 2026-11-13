@@ -593,7 +593,8 @@ function saveRows(ds, rows, mode, source){
     const tx = conn.transaction([ds.id, 'uploads'], 'readwrite');
     const st = tx.objectStore(ds.id);
     if (mode === 'replace') st.clear();
-    if (mode === 'replaceMonth') for (const mo of new Set(rows.map(r => r.month))) st.delete(IDBKeyRange.bound(mo + '|', mo + '|\uffff'));
+    // \ucc44\ub110 \uc190\uc775: \uc62c\ub9b0 \uc790\ub8cc\uc5d0 \uc788\ub294 \uae30\uc900\uc6d4\u00b7\ucc44\ub110(LV3\uba85) \uc870\ud569\ub9cc \uc9c0\uc6b0\uace0 \uc0c8\ub85c \ub123\ub294\ub2e4. \ub2e4\ub978 \ucc44\ub110\uc740 \uadf8\ub300\ub85c \ub454\ub2e4.
+    if (mode === 'replaceMonth') for (const k of new Set(rows.map(r => r.month + '|' + r.lv3 + '|'))) st.delete(IDBKeyRange.bound(k, k + '\uffff'));
     for (const r of rows) st.put(r);
     tx.objectStore('uploads').add({ts: new Date().toISOString(), dataset: ds.id, source, rows: rows.length, mode});
     tx.oncomplete = () => resolve();
@@ -753,13 +754,14 @@ function showPreview(){
   modes.replaceChildren();
   if (ds.id === 'pnl'){
     const months = [...new Set(p.rows.map(r => r.month))].sort().join(', ');
+    const lv3s = [...new Set(p.rows.map(r => r.lv3))].sort().join(', ');
     const opt = (v, t, on) => {
       const l = el('label'), r = el('input');
       r.type = 'radio'; r.name = 'mode'; r.value = v; r.checked = on;
       l.append(r, ' ' + t);
       return l;
     };
-    modes.append(opt('replaceMonth', `${months} 자료 교체 (그 달 기존 자료 삭제 후 저장)`, true), opt('merge', '추가·수정', false));
+    modes.append(opt('replaceMonth', `${months} · ${lv3s} 자료 교체 (이 채널의 그 달 기존 자료만 지우고 저장, 다른 채널은 유지)`, true), opt('merge', '추가·수정', false));
   } else if (ds.id !== 'pos'){
     const opt = (v, t, on) => {
       const l = el('label'), r = el('input');
