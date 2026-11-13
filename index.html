@@ -18,7 +18,7 @@ main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
 .notice{color:var(--sub);font-size:13px;margin:0 0 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px}
 .card h2{font-size:15px;margin:0 0 12px}
-.tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:16px}
 .tab{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;text-align:left;font:inherit;cursor:pointer;color:inherit}
 .tab.on{border-color:var(--pri);background:var(--pri-soft)}
 .tab b{display:block}
@@ -35,7 +35,7 @@ button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-
 button.link{background:none;border:0;color:var(--err);font:inherit;font-size:12px;cursor:pointer;padding:0}
 button:disabled{opacity:.5;cursor:default}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-#counts{grid-template-columns:repeat(6,minmax(0,1fr))}
+#counts{grid-template-columns:repeat(7,minmax(0,1fr))}
 .stat{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fff}
 .stat span{color:var(--sub);font-size:12px;display:block}
 .stat b{font-size:19px}
@@ -175,6 +175,7 @@ button.rowlink:hover{text-decoration:underline}
         <label class="fld">입점 대상 채널<select id="lTarget"></select></label>
         <label class="fld">잘 팔린다 기준<select id="lTop"><option value="0.1">구성비 상위 10%</option><option value="0.2">상위 20%</option><option value="0.3" selected>상위 30%</option><option value="0.4">상위 40%</option><option value="0.5">상위 50%</option></select></label>
         <label class="fld">제품 검색<input id="lQuery" placeholder="코드 또는 이름"></label>
+        <label class="fld">대상 채널 운영 이력<select id="lHist"><option value="">전체</option><option value="no">이력 없는 품목만</option><option value="yes">이력 있는 품목만</option></select></label>
         <label class="fld">분배구분<select id="lGroup"></select></label>
         <label class="fld">소분류<select id="lMinor"></select></label>
       </div>
@@ -288,6 +289,11 @@ const DATASETS = [
    preview:[['기준월','month'],['LV3명','lv3'],['제품코드','productCode'],['제품명','productName'],['소분류','minor'],['판매수량','qty'],['총매출','gross'],['공헌이익','contribution']],
    previewNumericFrom: 5,
    exportCols:[['기준월','month'],['LV3코드','lv3Code'],['LV3명','lv3'],['분배구분','group'],['소분류','minor'],['제품코드','productCode'],['제품명','productName'],['공장도가','factoryPrice'],['판매수량','qty'],['총매출','gross'],['납품가매출','net'],['매출차감계','deduction'],['비용','cost'],['변동원가','varCost'],['물류비','logistics'],['공헌이익','contribution']]},
+  {id:'history', name:'7. 운영 이력', note:'채널별 과거~현재 운영 품목', label:'운영 이력',
+   columns:[['lv3Code','LV3코드',0,0],['lv3','LV3명',0,1],['productCode','제품코드',0,1],['productName','제품명',0,0]],
+   headerless:['lv3Code','lv3','productCode','productName'],
+   preview:[['LV3코드','lv3Code'],['LV3명','lv3'],['제품코드','productCode'],['제품명','productName']],
+   exportCols:[['LV3코드','lv3Code'],['LV3명','lv3'],['제품코드','productCode'],['제품명','productName']]},
 ];
 const byId = id => DATASETS.find(d => d.id === id);
 
@@ -344,6 +350,12 @@ const CONVERT = {
     const productCode = code(c.productCode, '제품번호');
     const f = text(c.taxFactor);
     return {id: productCode, productCode, productName: text(c.productName), major: text(c.major), minor: text(c.minor), taxType: text(c.taxType), taxFactor: f ? number(f, '과세 계수') : null, promoClass: text(c.promoClass)};
+  },
+  history(c){
+    const lv3 = text(c.lv3);
+    if (!lv3) throw new RowError('LV3명 없음');
+    const productCode = code(c.productCode, '제품코드');
+    return {id: `${lv3}|${productCode}`, lv3, lv3Code: text(c.lv3Code), productCode, productName: text(c.productName)};
   },
   pnl(c, ctx){
     const month = text(c.month) ? monthOf(c.month) : ctx.month;
@@ -459,9 +471,14 @@ function parseRows(ds, sheets, channels, extra = {}){
       if (!cols){
         if (!firstSeen) firstSeen = row.slice(0, 12).map(text);
         cols = locateColumns(row, ds);
-        if (!cols && rowNo >= 30) break;
-        if (cols) used.push(sheet.name);
-        continue;
+        if (!cols && ds.headerless && /^\d+(\.0+)?$/.test(text(row[2]))){
+          cols = Object.fromEntries(ds.headerless.map((k, i) => [k, i]));
+          used.push(sheet.name);
+        } else {
+          if (!cols && rowNo >= 30) break;
+          if (cols) used.push(sheet.name);
+          continue;
+        }
       }
       const c = {};
       for (const k in cols) c[k] = row[cols[k]];
@@ -556,7 +573,7 @@ const STORES = DATASETS.map(d => d.id);
 let dbPromise;
 function db(){
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('pos-data', 4);
+    const req = indexedDB.open('pos-data', 5);
     req.onupgradeneeded = e => {
       if (e.oldVersion < 1){
         for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
@@ -576,6 +593,7 @@ function db(){
         };
       }
       if (e.oldVersion < 4 && !req.result.objectStoreNames.contains('pnl')) req.result.createObjectStore('pnl', {keyPath: 'id'});
+      if (e.oldVersion < 5 && !req.result.objectStoreNames.contains('history')) req.result.createObjectStore('history', {keyPath: 'id'});
     };
     req.onblocked = () => reject(new UserError('이 사이트가 다른 탭에도 열려 있어요. 다른 탭을 모두 닫고 새로고침해 주세요.'));
     req.onsuccess = () => { req.result.onversionchange = () => req.result.close(); resolve(req.result); };
@@ -1221,7 +1239,7 @@ $('navDash').onclick = () => show('dash');
 $('navListing').onclick = () => show('listing');
 renderTabs();
 </script>
-<script src="dash.js?v=20261113j"></script>
-<script src="listing.js?v=20261113j"></script>
+<script src="dash.js?v=20261113k"></script>
+<script src="listing.js?v=20261113k"></script>
 </body>
 </html>

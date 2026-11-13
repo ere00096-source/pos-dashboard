@@ -10,7 +10,7 @@ const isExcludedGroup = g => /^\s*(PB|제외)\s*$/i.test(g || '');
 // 행사분류표 값 정리: N/A는 공백
 const normPromo = v => /^\s*n\s*\/?\s*a\s*$/i.test(v || '') ? '' : (v || '').trim();
 
-function listingAnalyze(rows, f, prod = new Map()){
+function listingAnalyze(rows, f, prod = new Map(), history = new Set()){
   const promoOf = code => normPromo((prod.get(code) || {}).promoClass);
   const use = f.month === 'all' ? rows : rows.filter(r => r.month === f.month);
   const info = new Map(), chans = new Map();
@@ -62,6 +62,8 @@ function listingAnalyze(rows, f, prod = new Map()){
       if (t.carried.has(code) || !passes(code)) continue;
       if (isPB((info.get(code) || {}).name)){ pbSkipped.add(code); continue; }
       if (isExcludedGroup((info.get(code) || {}).group)){ groupSkipped.add(code); continue; }
+      const hadIt = history.has(t.name + '|' + code);
+      if ((f.hist === 'no' && hadIt) || (f.hist === 'yes' && !hadIt)) continue;
       const sources = channels.filter(s => s !== t && s.top.has(code) && s.total > 0);
       if (!sources.length) continue;
       let best = sources[0];
@@ -80,7 +82,7 @@ function listingAnalyze(rows, f, prod = new Map()){
       const basis = byMinor ? '소분류' : mi ? '신규 소분류 (채널 전체 기준)' : '소분류 없음 (채널 전체 기준)';
       candidates.push({target: t.name, code, name: i.name, group: i.group, minor: i.minor, source: best.name, share, inMinor,
         rank: best.rank.get(code), of: best.count, est, basis, targetMinorGross: tgtMinor, contribRate: bp.gross ? bp.contribution / bp.gross : null,
-        estContrib: bp.gross ? est * bp.contribution / bp.gross : null,
+        estContrib: bp.gross ? est * bp.contribution / bp.gross : null, history: hadIt,
         otherSources: sources.length - 1, others: sources.filter(s => s !== best).sort((a, b) => b.carried.get(code).gross / b.total - a.carried.get(code).gross / a.total).map(s => s.name), sameMinor: t.minors.get(mi) || 0, promo: promoOf(code), samePromo: promoOf(code) ? (t.promos.get(promoOf(code)) || 0) : null});
     }
   }
@@ -97,7 +99,7 @@ function listingAnalyze(rows, f, prod = new Map()){
 }
 
 // ---------- 화면 ----------
-const listing = {rows: null, result: null, prod: new Map()};
+const listing = {rows: null, result: null, prod: new Map(), history: new Set()};
 // 제품분류표의 대분류·소분류·행사분류표 (행사분류표가 N/A면 공백)
 function classOf(code){
   const p = listing.prod.get(code) || {};
@@ -106,7 +108,7 @@ function classOf(code){
 const LISTING_LIMIT = 500;
 
 function listingFilters(){
-  return {month: $('lMonth').value || 'all', target: $('lTarget').value, top: +$('lTop').value, q: $('lQuery').value, group: $('lGroup').value, minor: $('lMinor').value};
+  return {month: $('lMonth').value || 'all', target: $('lTarget').value, top: +$('lTop').value, q: $('lQuery').value, group: $('lGroup').value, minor: $('lMinor').value, hist: $('lHist').value};
 }
 function fillOpts(sel, opts){
   const prev = sel.value;
@@ -123,7 +125,8 @@ function fillListingMinor(){
 async function loadListing(){
   $('lTable').replaceChildren(el('p', '데이터를 불러오는 중이에요...', 'sub'));
   try {
-    const [rows, products] = await Promise.all([getAll('pnl'), getAll('product')]);
+    const [rows, products, history] = await Promise.all([getAll('pnl'), getAll('product'), getAll('history')]);
+    listing.history = new Set(history.map(h => h.lv3 + '|' + h.productCode));
     listing.rows = rows;
     listing.prod = new Map(products.map(p => [p.productCode, p]));
     if (!listing.rows.length){
@@ -152,9 +155,9 @@ async function loadListing(){
 function renderListing(){
   if (!listing.rows || !listing.rows.length) return;
   const f = listingFilters();
-  const res = listing.result = listingAnalyze(listing.rows, f, listing.prod);
+  const res = listing.result = listingAnalyze(listing.rows, f, listing.prod, listing.history);
   const period = f.month === 'all' ? '전체 기간 합계' : f.month;
-  $('lNotice').textContent = `채널 ${res.channels.length}곳 · ${period} 기준 · 채널 총매출: ` + res.channels.map(c => `${c.name} ${fmt(Math.round(c.total))} (${fmt(c.count)}개 제품)`).join(' / ') + (res.pbSkipped.size ? ` · 제품명에 PB가 들어간 제품 ${fmt(res.pbSkipped.size)}개는 채널 전용이라 제안에서 제외` : '') + (res.groupSkipped.size ? ` · 분배구분이 PB·제외인 제품 ${fmt(res.groupSkipped.size)}개는 제안에서 제외` : '');
+  $('lNotice').textContent = `채널 ${res.channels.length}곳 · ${period} 기준 · 채널 총매출: ` + res.channels.map(c => `${c.name} ${fmt(Math.round(c.total))} (${fmt(c.count)}개 제품)`).join(' / ') + (res.pbSkipped.size ? ` · 제품명에 PB가 들어간 제품 ${fmt(res.pbSkipped.size)}개는 채널 전용이라 제안에서 제외` : '') + (res.groupSkipped.size ? ` · 분배구분이 PB·제외인 제품 ${fmt(res.groupSkipped.size)}개는 제안에서 제외` : '') + (listing.history.size ? ` · 운영 이력 ${fmt(listing.history.size)}건 반영` : ' · 운영 이력 자료 없음 (데이터 업로드 → 7. 운영 이력)');
 
   const box = (l, v, s) => { const d = el('div', null, 'stat'); d.append(el('span', l), el('b', v)); if (s) d.append(el('span', s)); return d; };
   const targets = res.channels.filter(c => !f.target || c.name === f.target);
@@ -164,11 +167,11 @@ function renderListing(){
     return box(`${c.name} 입점 후보`, `${fmt(list.length)}개`, `예상 매출 합계 ${fmt(Math.round(list.reduce((s, x) => s + x.est, 0)))}`);
   }));
 
-  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '잘 팔리는 채널', '예상 매출', '예상 공헌이익', '공헌이익률', '다른 강한 채널', '대상 채널 같은 소분류', '대상 채널 같은 행사분류표'];
-  const rows = res.candidates.slice(0, LISTING_LIMIT).map(x => [x.target, ...classOf(x.code), x.code, x.name, x.source, fmt(Math.round(x.est)), x.estContrib == null ? '' : fmt(Math.round(x.estContrib)), x.contribRate == null ? '' : pct(x.contribRate), x.others.join(', '), x.sameMinor ? `있음 (${x.sameMinor}개)` : '없음', x.samePromo == null ? '' : x.samePromo ? `있음 (${x.samePromo}개)` : '없음']);
+  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '대상 채널 운영 이력', '잘 팔리는 채널', '예상 매출', '예상 공헌이익', '공헌이익률', '다른 강한 채널', '대상 채널 같은 소분류', '대상 채널 같은 행사분류표'];
+  const rows = res.candidates.slice(0, LISTING_LIMIT).map(x => [x.target, ...classOf(x.code), x.code, x.name, x.history ? '있음' : '', x.source, fmt(Math.round(x.est)), x.estContrib == null ? '' : fmt(Math.round(x.estContrib)), x.contribRate == null ? '' : pct(x.contribRate), x.others.join(', '), x.sameMinor ? `있음 (${x.sameMinor}개)` : '없음', x.samePromo == null ? '' : x.samePromo ? `있음 (${x.samePromo}개)` : '없음']);
   if (!rows.length) $('lTable').replaceChildren(el('p', '조건에 맞는 입점 후보가 없어요.', 'sub'));
   else {
-    table($('lTable'), heads, rows, i => i >= 7 && i <= 9);
+    table($('lTable'), heads, rows, i => i >= 8 && i <= 10);
     if (res.candidates.length > LISTING_LIMIT) $('lTable').append(el('p', `상위 ${LISTING_LIMIT}개만 보여요. "이 표 복사"로는 전체를 받을 수 있어요.`, 'sub'));
   }
   $('lMsg').textContent = '';
@@ -185,8 +188,8 @@ function renderListing(){
 $('lCopy').onclick = async () => {
   const res = listing.result;
   if (!res || !res.candidates.length) return;
-  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '잘 팔리는 채널', '예상 매출', '예상 공헌이익', '공헌이익률(%)', '다른 강한 채널', '대상 채널 같은 소분류 제품 수', '대상 채널 같은 행사분류표 제품 수'];
-  const rows = res.candidates.map(x => [x.target, ...classOf(x.code), x.code, x.name, x.source, Math.round(x.est), x.estContrib == null ? '' : Math.round(x.estContrib), x.contribRate == null ? '' : +(x.contribRate * 100).toFixed(2), x.others.join(', '), x.sameMinor, x.samePromo == null ? '' : x.samePromo]);
+  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '대상 채널 운영 이력', '잘 팔리는 채널', '예상 매출', '예상 공헌이익', '공헌이익률(%)', '다른 강한 채널', '대상 채널 같은 소분류 제품 수', '대상 채널 같은 행사분류표 제품 수'];
+  const rows = res.candidates.map(x => [x.target, ...classOf(x.code), x.code, x.name, x.history ? '있음' : '', x.source, Math.round(x.est), x.estContrib == null ? '' : Math.round(x.estContrib), x.contribRate == null ? '' : +(x.contribRate * 100).toFixed(2), x.others.join(', '), x.sameMinor, x.samePromo == null ? '' : x.samePromo]);
   try {
     await navigator.clipboard.writeText(listToTsv({heads, rows}));
     $('lMsg').textContent = `${fmt(rows.length)}행을 복사했어요. 엑셀에 붙여넣으세요.`;
@@ -194,7 +197,7 @@ $('lCopy').onclick = async () => {
     $('lMsg').textContent = `복사하지 못했어요: ${e.message}`;
   }
 };
-for (const id of ['lMonth', 'lTarget', 'lTop', 'lMinor']) $(id).addEventListener('change', renderListing);
+for (const id of ['lMonth', 'lTarget', 'lTop', 'lMinor', 'lHist']) $(id).addEventListener('change', renderListing);
 $('lGroup').addEventListener('change', () => { fillListingMinor(); renderListing(); });
 let listingQueryTimer;
 $('lQuery').addEventListener('input', () => { clearTimeout(listingQueryTimer); listingQueryTimer = setTimeout(renderListing, 250); });
