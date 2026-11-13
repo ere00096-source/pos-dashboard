@@ -276,9 +276,9 @@ const DATASETS = [
    preview:[['채널2','channel2'],['88코드','code88'],['제품코드','productCode'],['팀','team'],['채널','channel'],['POS발생','hasPos'],['EAN제품명','eanName'],['제품명','productName'],['전환수량','conv']],
    exportCols:[['팀','team'],['채널','channel'],['채널2','channel2'],['POS 발생 유무','hasPos'],['88코드','code88'],['EAN제품명','eanName'],['제품코드','productCode'],['제품명','productName'],['전환수량','conv']]},
   {id:'product', name:'4. 제품분류표', note:'대·소분류, 과세 구분', label:'제품분류표',
-   columns:[['productCode','제품번호',0,1],['productName','제품번호 Name',0,0],['major','대카테고리(기획실)',0,1],['minor','소카테고리(기획실)',0,1],['taxType','과세면세',0,0],['taxFactor','과세면세',1,0]],
-   preview:[['제품번호','productCode'],['제품명','productName'],['대카테고리','major'],['소카테고리','minor'],['과세면세','taxType'],['계수','taxFactor']],
-   exportCols:[['제품번호','productCode'],['제품번호 Name','productName'],['대카테고리(기획실)','major'],['소카테고리(기획실)','minor'],['과세면세','taxType'],['과세면세','taxFactor']]},
+   columns:[['productCode','제품번호',0,1],['productName','제품번호 Name',0,0],['mktMajor','대카테고리(MKT)',0,0],['major','대카테고리(기획실)',0,1],['minor','소카테고리(기획실)',0,1],['taxType','과세면세',0,0],['taxFactor','과세면세',1,0],['promoClass','행사분류표',0,0]],
+   preview:[['제품번호','productCode'],['제품명','productName'],['대카테고리(MKT)','mktMajor'],['대카테고리','major'],['소카테고리','minor'],['과세면세','taxType'],['계수','taxFactor'],['행사분류표','promoClass']],
+   exportCols:[['제품번호','productCode'],['제품번호 Name','productName'],['대카테고리(MKT)','mktMajor'],['대카테고리(기획실)','major'],['소카테고리(기획실)','minor'],['과세면세','taxType'],['과세면세','taxFactor'],['행사분류표','promoClass']]},
   {id:'pos', name:'5. POS RAW', note:'일자·88코드별 판매', label:'POS RAW',
    columns:[['team','팀',0,1],['channel','채널',0,1],['date','날짜',0,1],['code88','88코드',0,1],['name','제품명',0,0],['qty','판매수량',0,1],['amount','판매금액',0,1]],
    preview:[['채널','channel'],['날짜','date'],['88코드','code88'],['팀','team'],['제품명','name'],['판매수량','qty'],['판매금액','amount']],
@@ -343,7 +343,7 @@ const CONVERT = {
   product(c){
     const productCode = code(c.productCode, '제품번호');
     const f = text(c.taxFactor);
-    return {id: productCode, productCode, productName: text(c.productName), major: text(c.major), minor: text(c.minor), taxType: text(c.taxType), taxFactor: f ? number(f, '과세 계수') : null};
+    return {id: productCode, productCode, productName: text(c.productName), mktMajor: text(c.mktMajor), major: text(c.major), minor: text(c.minor), taxType: text(c.taxType), taxFactor: f ? number(f, '과세 계수') : null, promoClass: text(c.promoClass)};
   },
   pnl(c, ctx){
     const month = text(c.month) ? monthOf(c.month) : ctx.month;
