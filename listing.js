@@ -5,8 +5,13 @@
 // 후보 = 어떤 채널에서 구성비 상위 N%인데 다른 채널에서는 운영하지 않는 제품.
 // 제품명에 PB가 들어간 제품은 그 채널 전용 상품이라 제안하지 않는다(매출 집계에는 포함).
 const isPB = name => /PB/i.test(name || '');
+// 분배구분이 PB이거나 제외인 품목도 제안하지 않는다(매출 집계에는 포함).
+const isExcludedGroup = g => /^\s*(PB|제외)\s*$/i.test(g || '');
+// 행사분류표 값 정리: N/A는 공백
+const normPromo = v => /^\s*n\s*\/?\s*a\s*$/i.test(v || '') ? '' : (v || '').trim();
 
-function listingAnalyze(rows, f){
+function listingAnalyze(rows, f, prod = new Map()){
+  const promoOf = code => normPromo((prod.get(code) || {}).promoClass);
   const use = f.month === 'all' ? rows : rows.filter(r => r.month === f.month);
   const info = new Map(), chans = new Map();
   for (const r of use){
@@ -30,6 +35,8 @@ function listingAnalyze(rows, f){
     c.count = ranked.length;
     c.minors = new Map();
     c.minorGross = new Map();
+    c.promos = new Map();
+    for (const code of c.carried.keys()){ const pr = promoOf(code); if (pr) c.promos.set(pr, (c.promos.get(pr) || 0) + 1); }
     for (const [code, p] of c.carried){
       const m = (info.get(code) || {}).minor || '';
       c.minors.set(m, (c.minors.get(m) || 0) + 1);
@@ -48,12 +55,13 @@ function listingAnalyze(rows, f){
   };
 
   const candidates = [];
-  const pbSkipped = new Set();
+  const pbSkipped = new Set(), groupSkipped = new Set();
   for (const t of channels){
     if (f.target && t.name !== f.target) continue;
     for (const code of info.keys()){
       if (t.carried.has(code) || !passes(code)) continue;
       if (isPB((info.get(code) || {}).name)){ pbSkipped.add(code); continue; }
+      if (isExcludedGroup((info.get(code) || {}).group)){ groupSkipped.add(code); continue; }
       const sources = channels.filter(s => s !== t && s.top.has(code) && s.total > 0);
       if (!sources.length) continue;
       let best = sources[0];
@@ -72,7 +80,7 @@ function listingAnalyze(rows, f){
       const basis = byMinor ? '소분류' : mi ? '신규 소분류 (채널 전체 기준)' : '소분류 없음 (채널 전체 기준)';
       candidates.push({target: t.name, code, name: i.name, group: i.group, minor: i.minor, source: best.name, share, inMinor,
         rank: best.rank.get(code), of: best.count, est, basis, targetMinorGross: tgtMinor, contribRate: bp.gross ? bp.contribution / bp.gross : null,
-        otherSources: sources.length - 1, sameMinor: t.minors.get(mi) || 0});
+        otherSources: sources.length - 1, sameMinor: t.minors.get(mi) || 0, promo: promoOf(code), samePromo: promoOf(code) ? (t.promos.get(promoOf(code)) || 0) : null});
     }
   }
   const order = new Map(channels.map((c, i) => [c.name, i]));
@@ -84,7 +92,7 @@ function listingAnalyze(rows, f){
     total: channels.reduce((s, c) => s + ((c.carried.get(i.code) || {}).gross || 0), 0),
   })).filter(r => r.total > 0).sort((a, b) => b.total - a.total);
 
-  return {channels, candidates, matrix, pbSkipped};
+  return {channels, candidates, matrix, pbSkipped, groupSkipped};
 }
 
 // ---------- 화면 ----------
@@ -92,8 +100,7 @@ const listing = {rows: null, result: null, prod: new Map()};
 // 제품분류표의 대분류·소분류·행사분류표 (행사분류표가 N/A면 공백)
 function classOf(code){
   const p = listing.prod.get(code) || {};
-  const promo = /^\s*n\s*\/?\s*a\s*$/i.test(p.promoClass || '') ? '' : (p.promoClass || '');
-  return [p.major || '', p.minor || '', promo];
+  return [p.major || '', p.minor || '', normPromo(p.promoClass)];
 }
 const LISTING_LIMIT = 500;
 
@@ -144,9 +151,9 @@ async function loadListing(){
 function renderListing(){
   if (!listing.rows || !listing.rows.length) return;
   const f = listingFilters();
-  const res = listing.result = listingAnalyze(listing.rows, f);
+  const res = listing.result = listingAnalyze(listing.rows, f, listing.prod);
   const period = f.month === 'all' ? '전체 기간 합계' : f.month;
-  $('lNotice').textContent = `채널 ${res.channels.length}곳 · ${period} 기준 · 채널 총매출: ` + res.channels.map(c => `${c.name} ${fmt(Math.round(c.total))} (${fmt(c.count)}개 제품)`).join(' / ') + (res.pbSkipped.size ? ` · 제품명에 PB가 들어간 제품 ${fmt(res.pbSkipped.size)}개는 채널 전용이라 제안에서 제외` : '');
+  $('lNotice').textContent = `채널 ${res.channels.length}곳 · ${period} 기준 · 채널 총매출: ` + res.channels.map(c => `${c.name} ${fmt(Math.round(c.total))} (${fmt(c.count)}개 제품)`).join(' / ') + (res.pbSkipped.size ? ` · 제품명에 PB가 들어간 제품 ${fmt(res.pbSkipped.size)}개는 채널 전용이라 제안에서 제외` : '') + (res.groupSkipped.size ? ` · 분배구분이 PB·제외인 제품 ${fmt(res.groupSkipped.size)}개는 제안에서 제외` : '');
 
   const box = (l, v, s) => { const d = el('div', null, 'stat'); d.append(el('span', l), el('b', v)); if (s) d.append(el('span', s)); return d; };
   const targets = res.channels.filter(c => !f.target || c.name === f.target);
@@ -156,11 +163,11 @@ function renderListing(){
     return box(`${c.name} 입점 후보`, `${fmt(list.length)}개`, `예상 매출 합계 ${fmt(Math.round(list.reduce((s, x) => s + x.est, 0)))}`);
   }));
 
-  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '분배구분', '소분류(손익)', '잘 팔리는 채널', '그 채널 구성비', '그 채널 순위', '그 채널 소분류 내 비중', '대상 채널 소분류 매출', '예상 매출', '계산 기준', '공헌이익률', '다른 강한 채널 수', '대상 채널 같은 소분류'];
-  const rows = res.candidates.slice(0, LISTING_LIMIT).map(x => [x.target, ...classOf(x.code), x.code, x.name, x.group, x.minor, x.source, pct(x.share), `${x.rank} / ${x.of}`, x.inMinor == null ? '' : pct(x.inMinor), fmt(Math.round(x.targetMinorGross)), fmt(Math.round(x.est)), x.basis, x.contribRate == null ? '' : pct(x.contribRate), x.otherSources || '', x.sameMinor ? `있음 (${x.sameMinor}개)` : '없음']);
+  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '소분류(손익)', '잘 팔리는 채널', '그 채널 구성비', '그 채널 순위', '그 채널 소분류 내 비중', '대상 채널 소분류 매출', '예상 매출', '계산 기준', '공헌이익률', '다른 강한 채널 수', '대상 채널 같은 소분류', '대상 채널 같은 행사분류표'];
+  const rows = res.candidates.slice(0, LISTING_LIMIT).map(x => [x.target, ...classOf(x.code), x.code, x.name, x.minor, x.source, pct(x.share), `${x.rank} / ${x.of}`, x.inMinor == null ? '' : pct(x.inMinor), fmt(Math.round(x.targetMinorGross)), fmt(Math.round(x.est)), x.basis, x.contribRate == null ? '' : pct(x.contribRate), x.otherSources || '', x.sameMinor ? `있음 (${x.sameMinor}개)` : '없음', x.samePromo == null ? '' : x.samePromo ? `있음 (${x.samePromo}개)` : '없음']);
   if (!rows.length) $('lTable').replaceChildren(el('p', '조건에 맞는 입점 후보가 없어요.', 'sub'));
   else {
-    table($('lTable'), heads, rows, i => (i >= 9 && i <= 13) || i === 15 || i === 16);
+    table($('lTable'), heads, rows, i => (i >= 8 && i <= 12) || i === 14 || i === 15);
     if (res.candidates.length > LISTING_LIMIT) $('lTable').append(el('p', `상위 ${LISTING_LIMIT}개만 보여요. "이 표 복사"로는 전체를 받을 수 있어요.`, 'sub'));
   }
   $('lMsg').textContent = '';
@@ -177,8 +184,8 @@ function renderListing(){
 $('lCopy').onclick = async () => {
   const res = listing.result;
   if (!res || !res.candidates.length) return;
-  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '분배구분', '소분류(손익)', '잘 팔리는 채널', '그 채널 구성비(%)', '그 채널 순위', '그 채널 제품 수', '그 채널 소분류 내 비중(%)', '대상 채널 소분류 매출', '예상 매출', '계산 기준', '공헌이익률(%)', '다른 강한 채널 수', '대상 채널 같은 소분류 제품 수'];
-  const rows = res.candidates.map(x => [x.target, ...classOf(x.code), x.code, x.name, x.group, x.minor, x.source, +(x.share * 100).toFixed(2), x.rank, x.of, x.inMinor == null ? '' : +(x.inMinor * 100).toFixed(2), Math.round(x.targetMinorGross), Math.round(x.est), x.basis, x.contribRate == null ? '' : +(x.contribRate * 100).toFixed(2), x.otherSources, x.sameMinor]);
+  const heads = ['입점 대상 채널', '대분류', '소분류', '행사분류표', '제품코드', '제품명', '소분류(손익)', '잘 팔리는 채널', '그 채널 구성비(%)', '그 채널 순위', '그 채널 제품 수', '그 채널 소분류 내 비중(%)', '대상 채널 소분류 매출', '예상 매출', '계산 기준', '공헌이익률(%)', '다른 강한 채널 수', '대상 채널 같은 소분류 제품 수', '대상 채널 같은 행사분류표 제품 수'];
+  const rows = res.candidates.map(x => [x.target, ...classOf(x.code), x.code, x.name, x.minor, x.source, +(x.share * 100).toFixed(2), x.rank, x.of, x.inMinor == null ? '' : +(x.inMinor * 100).toFixed(2), Math.round(x.targetMinorGross), Math.round(x.est), x.basis, x.contribRate == null ? '' : +(x.contribRate * 100).toFixed(2), x.otherSources, x.sameMinor, x.samePromo == null ? '' : x.samePromo]);
   try {
     await navigator.clipboard.writeText(listToTsv({heads, rows}));
     $('lMsg').textContent = `${fmt(rows.length)}행을 복사했어요. 엑셀에 붙여넣으세요.`;
