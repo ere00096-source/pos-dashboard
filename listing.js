@@ -3,6 +3,8 @@
 // 채널 손익(총매출 = 판매수량 × 공장도가)으로 채널 간 비교. 채널 규모는 채널 내 총매출 구성비로 보정한다.
 // 운영 안 함 = 그 채널에 행이 없거나 판매수량이 0.
 // 후보 = 어떤 채널에서 구성비 상위 N%인데 다른 채널에서는 운영하지 않는 제품.
+// 제품명에 PB가 들어간 제품은 그 채널 전용 상품이라 제안하지 않는다(매출 집계에는 포함).
+const isPB = name => /PB/i.test(name || '');
 
 function listingAnalyze(rows, f){
   const use = f.month === 'all' ? rows : rows.filter(r => r.month === f.month);
@@ -44,10 +46,12 @@ function listingAnalyze(rows, f){
   };
 
   const candidates = [];
+  const pbSkipped = new Set();
   for (const t of channels){
     if (f.target && t.name !== f.target) continue;
     for (const code of info.keys()){
       if (t.carried.has(code) || !passes(code)) continue;
+      if (isPB((info.get(code) || {}).name)){ pbSkipped.add(code); continue; }
       const sources = channels.filter(s => s !== t && s.top.has(code) && s.total > 0);
       if (!sources.length) continue;
       let best = sources[0];
@@ -70,7 +74,7 @@ function listingAnalyze(rows, f){
     total: channels.reduce((s, c) => s + ((c.carried.get(i.code) || {}).gross || 0), 0),
   })).filter(r => r.total > 0).sort((a, b) => b.total - a.total);
 
-  return {channels, candidates, matrix};
+  return {channels, candidates, matrix, pbSkipped};
 }
 
 // ---------- 화면 ----------
@@ -124,7 +128,7 @@ function renderListing(){
   const f = listingFilters();
   const res = listing.result = listingAnalyze(listing.rows, f);
   const period = f.month === 'all' ? '전체 기간 합계' : f.month;
-  $('lNotice').textContent = `채널 ${res.channels.length}곳 · ${period} 기준 · 채널 총매출: ` + res.channels.map(c => `${c.name} ${fmt(Math.round(c.total))} (${fmt(c.count)}개 제품)`).join(' / ');
+  $('lNotice').textContent = `채널 ${res.channels.length}곳 · ${period} 기준 · 채널 총매출: ` + res.channels.map(c => `${c.name} ${fmt(Math.round(c.total))} (${fmt(c.count)}개 제품)`).join(' / ') + (res.pbSkipped.size ? ` · 제품명에 PB가 들어간 제품 ${fmt(res.pbSkipped.size)}개는 채널 전용이라 제안에서 제외` : '');
 
   const box = (l, v, s) => { const d = el('div', null, 'stat'); d.append(el('span', l), el('b', v)); if (s) d.append(el('span', s)); return d; };
   const targets = res.channels.filter(c => !f.target || c.name === f.target);
