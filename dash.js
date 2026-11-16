@@ -1,18 +1,19 @@
 'use strict';
 // ---------- 대시보드 ----------
-// 기준: 판매가 채널만. 제품코드로 볼 때는 그 채널에서 제품코드에 연결된 88코드마다 판매수량 × 전환수량을 더한다.
-// 88코드로 볼 때는 RAW 판매수량 그대로. 판매금액은 항상 RAW 합계.
+// 기준: 판매가 채널 + 매익률로 판매가를 환산한 납품가 채널. 제품코드로 볼 때는 그 채널에서 제품코드에 연결된 88코드마다 판매수량 × 전환수량을 더한다.
+// 88코드로 볼 때는 RAW 판매수량 그대로. 판매금액은 RAW 합계(납품가 채널은 판매가로 환산한 값).
 // 차수별 = 차수 기간(POS가 있는 기간과 겹치는 날) 일평균, 일자별 = 그날 값.
 
-const isPriceChannel = c => c.basis !== 'X' && c.basis.includes('판매가') && !c.basis.includes('납품');
+const isPriceChannel = c => (c.basis || '') !== 'X' && (c.basis || '').includes('판매가') && !(c.basis || '').includes('납품');
 const fmt1 = n => (n === '' || n == null || !isFinite(n)) ? '' : Number(n).toLocaleString('ko-KR', {maximumFractionDigits: 1});
 const fmt0 = n => (n === '' || n == null || !isFinite(n)) ? '' : Math.round(n).toLocaleString('ko-KR');
 const pct = n => (n == null || !isFinite(n)) ? '' : (n * 100).toLocaleString('ko-KR', {maximumFractionDigits: 1}) + '%';
 const spanDays = (a, b) => a > b ? 0 : Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
 const dayAdd = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
 
-function buildDashModel({pos, mapping, product, promo, channels}){
-  const chans = channels.filter(isPriceChannel).sort((a, b) => (a.channel + a.channel2).localeCompare(b.channel + b.channel2));
+function buildDashModel({pos, mapping, product, promo, channels, margin = []}){
+  const corr = buildMarginCorrector({margin, mapping, product, channels});
+  const chans = channels.filter(c => isPriceChannel(c) || (corr.hasData && isSupplyChannel(c))).sort((a, b) => (a.channel + a.channel2).localeCompare(b.channel + b.channel2));
   const chanSet = new Set(chans.map(c => c.channel2));
   const prod = new Map();
   for (const p of product) if (!prod.has(p.productCode)) prod.set(p.productCode, {code: p.productCode, name: p.productName || '', major: p.major || '', minor: p.minor || ''});
@@ -60,6 +61,7 @@ function buildDashModel({pos, mapping, product, promo, channels}){
   // POS
   const facts = [], coverage = new Map();
   let unmatchedRows = 0, minDate = '', maxDate = '';
+  const marginFallback = new Set(), marginNone = new Set();
   for (const p of pos){
     if (!chanSet.has(p.channel)) continue;
     const cv = coverage.get(p.channel);
@@ -73,10 +75,18 @@ function buildDashModel({pos, mapping, product, promo, channels}){
     if (!maps){ if (p.qty) unmatchedRows++; continue; }
     let round = '';
     for (const s of spans.get(p.channel) || []) if (s.start <= p.date && p.date <= s.end){ round = s.key; break; }
-    facts.push({ch: p.channel, date: p.date, c88: p.code88, key: k, qty: p.qty, amount: p.amount, round, maps});
+    let amount = p.amount;
+    if (corr.supply.has(p.channel)){
+      const r = corr.lookup(p.channel, p.code88);
+      if (r.factor == null) marginNone.add(k);
+      else { amount = p.amount * r.factor; if (!r.exact) marginFallback.add(k); }
+    }
+    facts.push({ch: p.channel, date: p.date, c88: p.code88, key: k, qty: p.qty, amount, round, maps});
   }
   const roundsWithData = new Set(facts.map(x => x.round).filter(Boolean));
-  return {chans, prod, mapBy, product88, roundList, roundsWithData, spans, facts, coverage, unmatchedRows, minDate, maxDate, convConflict, convMissing, sameConflict};
+  const supplyChans = chans.filter(c => corr.supply.has(c.channel2)).map(c => c.channel2);
+  const supplyAll = channels.filter(isSupplyChannel).map(c => c.channel2);
+  return {chans, prod, mapBy, product88, roundList, roundsWithData, spans, facts, coverage, unmatchedRows, minDate, maxDate, convConflict, convMissing, sameConflict, supplyChans, supplyAll, marginFallback, marginNone};
 }
 
 // 기간 안에서 그 채널의 일수 (POS가 있는 기간과 겹치는 날만 센다)
@@ -323,8 +333,8 @@ function initDashControls(){
 async function loadDash(){
   $('dT1').replaceChildren(el('p', '데이터를 불러오는 중이에요...', 'sub'));
   try {
-    const [pos, mapping, product, promo, channels] = await Promise.all(['pos', 'mapping', 'product', 'promo', 'channels'].map(getAll));
-    dash.model = buildDashModel({pos, mapping, product, promo, channels});
+    const [pos, mapping, product, promo, channels, margin] = await Promise.all(['pos', 'mapping', 'product', 'promo', 'channels', 'margin'].map(getAll));
+    dash.model = buildDashModel({pos, mapping, product, promo, channels, margin});
     if (!dash.f) dash.f = {};
     initDashControls();
     renderDash();
@@ -349,16 +359,20 @@ function renderDash(){
   $('dDateWrap').classList.toggle('hide', f.unit !== 'day');
   $('dTrendRange').classList.toggle('hide', f.unit !== 'day');
   if (!model.chans.length){
-    $('dT1').replaceChildren(el('p', '판매가 채널이 없어요. "1. 채널 기준"을 먼저 올려 주세요.', 'msg err'));
+    $('dT1').replaceChildren(el('p', '보여 줄 채널이 없어요. "1. 채널 기준"을 먼저 올려 주세요.', 'msg err'));
     return;
   }
   if (!model.facts.length){
-    $('dT1').replaceChildren(el('p', '판매가 채널의 매칭된 POS가 없어요. POS RAW와 매칭표를 올려 주세요.', 'msg err'));
+    $('dT1').replaceChildren(el('p', '매칭된 POS가 없어요. POS RAW와 매칭표를 올려 주세요.', 'msg err'));
     return;
   }
 
   const notes = [];
-  notes.push(`판매가 채널 ${model.chans.length}곳 기준 · POS ${model.minDate} ~ ${model.maxDate}`);
+  notes.push(`채널 ${model.chans.length}곳 기준 · POS ${model.minDate} ~ ${model.maxDate}`);
+  if (model.supplyChans.length) notes.push(`납품가 채널 ${model.supplyChans.join(', ')}은 판매금액을 매익률로 판매가 환산 (납품가액 × 과세계수 ÷ (1 − 매익률))`);
+  else if (model.supplyAll.length) notes.push(`납품가 채널(${model.supplyAll.join(', ')})은 매익률표(데이터 업로드 → 8. 매익률)를 올리면 판매가로 환산해 함께 보여요`);
+  if (model.marginFallback.size) notes.push(`매익률표에 없는 납품가 채널 품목 ${fmt(model.marginFallback.size)}개는 소분류 평균 등으로 보정 (검토 리스트 → 매익률 누락)`);
+  if (model.marginNone.size) notes.push(`매익률을 정할 수 없는 품목 ${fmt(model.marginNone.size)}개는 납품가액 그대로`);
   if (model.unmatchedRows) notes.push(`매칭되지 않은 POS ${fmt(model.unmatchedRows)}행은 제외 (검토 리스트 → 매칭 누락)`);
   if (model.convMissing.size) notes.push(`전환수량이 비어 있는 채널·88코드 ${fmt(model.convMissing.size)}개는 1로 계산`);
   if (model.sameConflict.size) notes.push(`88코드·제품코드가 같은데 전환수량이 다른 채널·88코드 ${fmt(model.sameConflict.size)}개는 첫 값으로 계산`);

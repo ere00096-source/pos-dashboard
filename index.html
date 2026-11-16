@@ -18,7 +18,7 @@ main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
 .notice{color:var(--sub);font-size:13px;margin:0 0 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px}
 .card h2{font-size:15px;margin:0 0 12px}
-.tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.tabs{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px;margin-bottom:16px}
 .tab{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;text-align:left;font:inherit;cursor:pointer;color:inherit}
 .tab.on{border-color:var(--pri);background:var(--pri-soft)}
 .tab b{display:block}
@@ -35,7 +35,7 @@ button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-
 button.link{background:none;border:0;color:var(--err);font:inherit;font-size:12px;cursor:pointer;padding:0}
 button:disabled{opacity:.5;cursor:default}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-#counts{grid-template-columns:repeat(7,minmax(0,1fr))}
+#counts{grid-template-columns:repeat(8,minmax(0,1fr))}
 .stat{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fff}
 .stat span{color:var(--sub);font-size:12px;display:block}
 .stat b{font-size:19px}
@@ -54,7 +54,7 @@ td.n,th.n{text-align:right}
 .hide{display:none!important}
 .spin{color:var(--pri);padding:10px 0}
 .sub{color:var(--sub);font-size:13px}
-#reviewTabs{grid-template-columns:repeat(6,1fr)}
+#reviewTabs{grid-template-columns:repeat(7,minmax(0,1fr))}
 .filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub)}
 .fld select,.fld input{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:14px;color:var(--ink);background:#fff;min-width:0}
@@ -294,10 +294,24 @@ const DATASETS = [
    headerless:['lv3Code','lv3','productCode','productName'],
    preview:[['LV3코드','lv3Code'],['LV3명','lv3'],['제품코드','productCode'],['제품명','productName']],
    exportCols:[['LV3코드','lv3Code'],['LV3명','lv3'],['제품코드','productCode'],['제품명','productName']]},
+  {id:'margin', name:'8. 매익률', note:'납품가 채널 판매가 환산용', label:'매익률', replaceDefault: true,
+   columns:[['channel','채널',0,1],['group1','장려금분배구분',0,0],['group2','판매비분배구분',0,0],['minor','소분류',0,0],['code88','88바코드',0,1],['ean','88바코드명',0,0],['productCode','제품코드',0,0],['productName','제품명',0,0],['price','판매가(VAT+)',0,0],['supply','납품가',0,0],['margin','매익률',0,1]],
+   preview:[['채널','channel'],['88바코드','code88'],['88바코드명','ean'],['제품코드','productCode'],['소분류','minor'],['판매가(VAT+)','price'],['납품가','supply'],['매익률','margin']],
+   previewNumericFrom: 5,
+   exportCols:[['채널','channel'],['장려금분배구분','group1'],['판매비분배구분','group2'],['소분류','minor'],['88바코드','code88'],['88바코드명','ean'],['제품코드','productCode'],['제품명','productName'],['판매가(VAT+)','price'],['납품가','supply'],['매익률','margin']]},
 ];
 const byId = id => DATASETS.find(d => d.id === id);
 
 const EXCLUDED = '제외코드';
+// 매익률: '30%', '0.3', '30' 모두 0.3으로
+function marginValue(v){
+  const s = text(v);
+  if (!s) throw new RowError('매익률 없음');
+  let n = number(s.replace(/%/g, ''), '매익률');
+  if (s.includes('%') || n > 1) n = n / 100;
+  if (!(n >= 0 && n < 1)) throw new RowError(`매익률 범위 오류: ${s}`);
+  return n;
+}
 // 기준월: '2026-10', '202610', '2026.10', 엑셀 날짜 모두 'YYYY-MM'으로
 function monthOf(v){
   const d = fullDate(v);
@@ -350,6 +364,22 @@ const CONVERT = {
     const productCode = code(c.productCode, '제품번호');
     const f = text(c.taxFactor);
     return {id: productCode, productCode, productName: text(c.productName), major: text(c.major), minor: text(c.minor), taxType: text(c.taxType), taxFactor: f ? number(f, '과세 계수') : null, promoClass: text(c.promoClass)};
+  },
+  margin(c, ctx){
+    const channel = text(c.channel);
+    if (!channel) throw new RowError('채널 없음');
+    const code88 = code(c.code88, '88바코드');
+    const pc = text(c.productCode);
+    const productCode = pc ? code(pc, '제품코드') : '';
+    const m = marginValue(c.margin);
+    if (ctx.channels.size){
+      const basis = ctx.channels.get(channel);
+      if (basis == null) ctx.warn(`채널 기준에 없는 채널: ${channel}`);
+      else if (!basis.includes('납품')) ctx.warn(`납품가 채널이 아닌 채널 (보정에 쓰이지 않음): ${channel}`);
+    }
+    const opt = (v, label) => text(v) === '' ? null : number(v, label);
+    return {id: `${channel}|${code88}`, channel, code88, productCode, productName: text(c.productName), ean: text(c.ean), minor: text(c.minor),
+      group1: text(c.group1), group2: text(c.group2), price: opt(c.price, '판매가'), supply: opt(c.supply, '납품가'), margin: m};
   },
   history(c){
     const lv3 = text(c.lv3);
@@ -573,7 +603,7 @@ const STORES = DATASETS.map(d => d.id);
 let dbPromise;
 function db(){
   if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open('pos-data', 5);
+    const req = indexedDB.open('pos-data', 6);
     req.onupgradeneeded = e => {
       if (e.oldVersion < 1){
         for (const s of STORES) req.result.createObjectStore(s, {keyPath: 'id'});
@@ -594,6 +624,7 @@ function db(){
       }
       if (e.oldVersion < 4 && !req.result.objectStoreNames.contains('pnl')) req.result.createObjectStore('pnl', {keyPath: 'id'});
       if (e.oldVersion < 5 && !req.result.objectStoreNames.contains('history')) req.result.createObjectStore('history', {keyPath: 'id'});
+      if (e.oldVersion < 6 && !req.result.objectStoreNames.contains('margin')) req.result.createObjectStore('margin', {keyPath: 'id'});
     };
     req.onblocked = () => reject(new UserError('이 사이트가 다른 탭에도 열려 있어요. 다른 탭을 모두 닫고 새로고침해 주세요.'));
     req.onsuccess = () => { req.result.onversionchange = () => req.result.close(); resolve(req.result); };
@@ -787,7 +818,7 @@ function showPreview(){
       l.append(r, ' ' + t);
       return l;
     };
-    modes.append(opt('merge', `추가·수정 (기존 ${fmt(p.existing)}건 유지)`, true), opt('replace', '전체 교체 (기존 데이터 삭제)', false));
+    modes.append(opt('merge', `추가·수정 (기존 ${fmt(p.existing)}건 유지)`, !ds.replaceDefault), opt('replace', '전체 교체 (기존 데이터 삭제)', !!ds.replaceDefault));
   } else if (p.overlap) {
     modes.append(el('span', `겹치는 ${fmt(p.overlap)}건은 새 값으로 바뀝니다.`, 'sub'));
   }
@@ -896,9 +927,66 @@ async function loadStatus(){
   if (!channels.length) $('channels').replaceChildren(el('p', '아직 올린 채널 기준이 없어요.', 'sub'));
   else table($('channels'), ['팀', '채널', '채널2', '금액 기준'], channels.map(c => [c.team, c.channel, c.channel2, c.basis === 'X' ? '관리 제외' : c.basis]));
 }
+const pctText = n => (n == null || !isFinite(n)) ? '' : (n * 100).toLocaleString('ko-KR', {maximumFractionDigits: 1}) + '%';
+// ---------- 납품가 채널 판매금액 보정 ----------
+// 보정 판매금액 = 납품가액 × 과세계수 ÷ (1 − 매익률)
+// 매익률: 채널+88바코드 → 채널+제품코드 → 같은 채널·같은 소분류 평균 → 전체 채널 같은 소분류 평균 → 채널 평균
+const isSupplyChannel = c => (c.basis || '') !== 'X' && (c.basis || '').includes('납품');
+function taxFactorOf(p){
+  if (!p) return null;
+  if (typeof p.taxFactor === 'number' && p.taxFactor > 0) return p.taxFactor;
+  if ((p.taxType || '').includes('면세')) return 1;
+  if ((p.taxType || '').includes('과세')) return 1.1;
+  return null;
+}
+function buildMarginCorrector({margin = [], mapping = [], product = [], channels = []}){
+  const supply = new Set(channels.filter(isSupplyChannel).map(c => c.channel2));
+  const prod = new Map(product.map(p => [p.productCode, p]));
+  const by88 = new Map(), byPc = new Map(), sameMinor = new Map(), allMinor = new Map(), byCh = new Map();
+  const add = (m, k, v) => { const s = m.get(k) || {sum: 0, n: 0}; s.sum += v; s.n++; m.set(k, s); };
+  const avg = s => s && s.n ? s.sum / s.n : null;
+  for (const r of margin){
+    const k = r.channel + '|' + r.code88;
+    if (!by88.has(k)) by88.set(k, r);
+    if (r.productCode && !byPc.has(r.channel + '|' + r.productCode)) byPc.set(r.channel + '|' + r.productCode, r);
+    const minor = r.minor || (prod.get(r.productCode) || {}).minor || '';
+    if (minor){ add(sameMinor, r.channel + '|' + minor, r.margin); add(allMinor, minor, r.margin); }
+    add(byCh, r.channel, r.margin);
+  }
+  const maps = new Map();
+  for (const m of mapping){
+    if (m.excluded) continue;
+    const k = m.channel2 + '|' + m.code88;
+    if (!maps.has(k)) maps.set(k, []);
+    if (!maps.get(k).includes(m.productCode)) maps.get(k).push(m.productCode);
+  }
+  const cache = new Map();
+  function lookup(ch, c88){
+    const k = ch + '|' + c88;
+    if (cache.has(k)) return cache.get(k);
+    const pcs = maps.get(k) || [];
+    const pinfo = pcs.map(pc => prod.get(pc)).find(Boolean);
+    const exact = by88.get(k);
+    let rec = exact, source = exact ? '88바코드' : '';
+    if (!rec) for (const pc of pcs){ rec = byPc.get(ch + '|' + pc); if (rec){ source = '제품코드'; break; } }
+    const minor = (pinfo && pinfo.minor) || (rec && rec.minor) || '';
+    let margin = rec ? rec.margin : null;
+    if (margin == null && minor){ margin = avg(sameMinor.get(ch + '|' + minor)); source = '같은 채널·소분류 평균'; }
+    if (margin == null && minor){ margin = avg(allMinor.get(minor)); source = '전체 채널·소분류 평균'; }
+    if (margin == null){ margin = avg(byCh.get(ch)); source = '채널 평균'; }
+    if (margin == null) source = '적용 불가';
+    const tf = taxFactorOf(pinfo);
+    const tax = tf == null ? 1.1 : tf;
+    const res = {margin, source, tax, taxKnown: tf != null, minor, productCode: pcs[0] || '', factor: margin == null ? null : tax / (1 - margin), exact: source === '88바코드' || source === '제품코드'};
+    cache.set(k, res);
+    return res;
+  }
+  return {supply, hasData: margin.length > 0, lookup};
+}
+
 // ---------- 검토 리스트 ----------
 const addDay = d => new Date(Date.parse(d) + 86400000).toISOString().slice(0, 10);
-function reviewData({pos, mapping, product, promo, channels = []}){
+function reviewData({pos, mapping, product, promo, channels = [], margin = []}){
   const posByCode = new Map();
   const posByDay = new Map();
   for (const p of pos){
@@ -1057,6 +1145,21 @@ function reviewData({pos, mapping, product, promo, channels = []}){
   }
   posNames.sort(cmp(r => r[0], r => r[1], r => r[7]));
 
+  // 7. 매익률 누락: 납품가 채널 POS인데 매익률표에 없는 품목
+  const corr = buildMarginCorrector({margin, mapping, product, channels});
+  const excludedCodes = new Set(mapping.filter(m => m.excluded).map(m => m.channel2 + '|' + m.code88));
+  const marginMissing = [];
+  if (corr.hasData){
+    for (const e of posByCode.values()){
+      const k = e.channel + '|' + e.code88;
+      if (!corr.supply.has(e.channel) || !isSold(e) || !mapped.has(k) || excludedCodes.has(k)) continue;
+      const r = corr.lookup(e.channel, e.code88);
+      if (r.exact) continue;
+      marginMissing.push([e.channel, e.code88, e.name, r.productCode, r.minor, r.margin == null ? '' : pctText(r.margin), r.source, r.taxKnown ? r.tax : `${r.tax} (분류표 없음)`, e.qty, e.amount]);
+    }
+  }
+  marginMissing.sort(cmp(r => r[0], r => -r[9]));
+
   return [
     {id: 'renewal', name: '리뉴얼 코드', note: '88코드 1개에 제품코드가 여러 개인 건 번갈아 출고하는 정상 상황이라, 그중 제품코드끼리 대·소분류가 서로 다른 경우만 보여 줘요. 대시보드에서는 어느 제품코드를 골라도 그 88코드의 판매가 똑같이 나와서, 분류가 다르면 분류별 합계가 어긋날 수 있어요. 판매수량이 있는 코드만 보고, 제품분류표에 없는 제품코드는 비교에서 빼요(분류 누락 탭에서 확인).',
      heads: ['88코드', 'EAN제품명', '제품코드', '제품명', '대카테고리', '소카테고리', '채널', 'POS 판매수량', '최근 판매일'], numeric: [7], rows: renewal},
@@ -1071,6 +1174,8 @@ function reviewData({pos, mapping, product, promo, channels = []}){
      heads: ['제품코드', '제품명', '채널', '88코드', 'EAN제품명', 'POS 판매수량'], numeric: [5], rows: unclassified},
     {id: 'posNames', name: 'POS 제품명 불일치', note: '한 채널에서 같은 88코드인데 POS RAW의 제품명이 다르게 들어온 경우예요. 이름별로 1행씩, 처음 나온 날짜 순서로 보여 줘요. 띄어쓰기와 영문 대소문자만 다른 이름은 같은 이름으로 봤어요. 판매수량이 있는 코드만 보여 줘요. 개당 단가는 판매금액 ÷ 판매수량이고, 금액 기준은 채널별로 달라요.',
      heads: ['채널', '88코드', 'POS 제품명', 'POS 건수', '판매수량', '판매금액', '개당 단가', '첫 판매일', '최근 판매일'], numeric: [3, 4, 5, 6], rows: posNames},
+    {id: 'marginMissing', name: '매익률 누락', note: (corr.hasData ? '' : '매익률표(데이터 업로드 → 8. 매익률)가 아직 없어요. ') + '납품가 채널에서 판매가 있는데 매익률표에 없는(채널+88바코드, 채널+제품코드 모두 없음) 품목이에요. 우선 같은 채널·같은 소분류 평균 → 전체 채널 같은 소분류 평균 → 채널 평균 순서로 매익률을 적용해 판매가를 환산했어요. 매익률표에 추가해서 다시 올려 주세요. 판매금액이 큰 순서예요.',
+     heads: ['채널', '88코드', 'POS 제품명', '제품코드', '소분류', '적용 매익률', '적용 기준', '과세계수', '판매수량', 'RAW 판매금액(납품가액)'], numeric: [8, 9], rows: marginMissing},
   ];
 }
 function reviewWorkbook(lists){
@@ -1106,8 +1211,8 @@ async function loadReview(){
   reviewMessage('');
   $('reviewDownload').disabled = $('reviewCopy').disabled = $('reviewTemplate').disabled = true;
   try {
-    const [pos, mapping, product, promo, channels] = await Promise.all(['pos', 'mapping', 'product', 'promo', 'channels'].map(getAll));
-    reviewLists = reviewData({pos, mapping, product, promo, channels});
+    const [pos, mapping, product, promo, channels, margin] = await Promise.all(['pos', 'mapping', 'product', 'promo', 'channels', 'margin'].map(getAll));
+    reviewLists = reviewData({pos, mapping, product, promo, channels, margin});
     renderReview();
     $('reviewDownload').disabled = $('reviewCopy').disabled = $('reviewTemplate').disabled = false;
   } catch (e) {
@@ -1239,7 +1344,7 @@ $('navDash').onclick = () => show('dash');
 $('navListing').onclick = () => show('listing');
 renderTabs();
 </script>
-<script src="dash.js?v=20261113k"></script>
-<script src="listing.js?v=20261113k"></script>
+<script src="dash.js?v=20261116a"></script>
+<script src="listing.js?v=20261116a"></script>
 </body>
 </html>
