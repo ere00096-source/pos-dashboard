@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>EDI 양식 변환</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2433;--sub:#667085;--line:#e2e5ea;--pri:#1f5fbf;--pri-soft:#e8f0fb;--err:#b42318;--err-soft:#fdecea;--warn:#93600a;--warn-soft:#fdf3dc;--ok:#18794e;--ok-soft:#e3f5ec}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:0 24px;display:flex;align-items:center;height:56px}
+header h1{font-size:17px;margin:0}
+main{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+.notice{color:var(--sub);font-size:13px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 12px}
+.need{color:var(--sub);font-size:13px;margin:0 0 14px}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub);max-width:240px;margin-bottom:14px}
+.fld input{padding:7px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:14px;color:var(--ink)}
+.inputs{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.zone{border:2px dashed #c3c9d3;border-radius:8px;padding:26px 16px;text-align:center;color:var(--sub);cursor:pointer;min-height:120px;display:flex;flex-direction:column;justify-content:center;outline:0}
+.zone:focus,.zone.over{border-color:var(--pri);background:var(--pri-soft);color:var(--pri)}
+.zone b{color:var(--ink);font-size:15px}
+.zone:focus b,.zone.over b{color:var(--pri)}
+button.main{background:var(--pri);color:#fff;border:0;border-radius:6px;padding:9px 18px;font:inherit;font-weight:700;cursor:pointer}
+button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:9px 16px;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.stat{border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.stat span{color:var(--sub);font-size:12px;display:block}
+.stat b{font-size:19px}
+.msg{border-radius:6px;padding:10px 12px;margin:0 0 10px;font-size:13px}
+.msg.err{background:var(--err-soft);color:var(--err)}
+.msg.warn{background:var(--warn-soft);color:var(--warn)}
+.msg.ok{background:var(--ok-soft);color:var(--ok)}
+.msg ul{margin:4px 0 0;padding-left:18px}
+.tbl{overflow:auto;border:1px solid var(--line);border-radius:6px;max-height:460px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}
+th{background:#f6f7f9;position:sticky;top:0;font-weight:700}
+td.n,th.n{text-align:right}
+.actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.hide{display:none!important}
+.sub{color:var(--sub);font-size:13px}
+@media(max-width:800px){.inputs{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}main{padding:16px 16px 48px}header{padding:0 16px}}
+</style>
+</head>
+<body>
+<header><h1>EDI 양식 변환</h1></header>
+<main>
+  <p class="notice">파일은 지금 쓰는 브라우저 안에서만 변환되고 어디로도 전송되지 않아요.</p>
+  <div class="card">
+    <h2>1. 자료 넣기</h2>
+    <p class="need">일자별 열("01 일 EDI납품수량", "01 일 납품금액" …)이 옆으로 늘어선 EDI 엑셀을 넣으면, 앞쪽 열(구분 ~ 단위)은 그대로 두고 날짜마다 한 줄씩 <b>날짜 · 납품수량 · 납품금액</b>으로 바꿔요. 수량·금액이 0인 날도 모두 남겨요.</p>
+    <label class="fld">기준 연·월 ("01 일"이 이 달의 1일)<input type="month" id="month"></label>
+    <div class="inputs">
+      <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 제목 행까지 복사해 붙여넣기</span></div>
+      <div class="zone" id="drop"><b>엑셀 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
+    </div>
+    <input type="file" id="file" class="hide" accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv">
+    <p id="busy" class="sub hide" style="margin-top:12px">변환하는 중이에요...</p>
+    <p id="fail" class="msg err hide" style="margin-top:14px"></p>
+  </div>
+  <div class="card hide" id="result">
+    <h2>2. 변환 결과</h2>
+    <div class="stats" id="stats"></div>
+    <div id="notes"></div>
+    <div class="tbl"><table id="preview"></table></div>
+    <div class="actions">
+      <button class="main" id="save">엑셀로 저장</button>
+      <button class="sec" id="copy">표 복사 (엑셀에 붙여넣기)</button>
+      <span class="sub" id="msg"></span>
+    </div>
+  </div>
+</main>
+<script src="../xlsx.full.min.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const fmt = n => n == null || n === '' ? '' : Number(n).toLocaleString('ko-KR');
+const text = v => v == null ? '' : String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+const norm = v => text(v).replace(/\s+/g, '').toLowerCase();
+class UserError extends Error {}
+function el(tag, content, cls){ const e = document.createElement(tag); if (content != null) e.textContent = content; if (cls) e.className = cls; return e; }
+
+// ---------- 입력 읽기 ----------
+function parseDelimited(raw, delimiter){
+  const rows = []; let row = [], cell = '', quoted = false, started = false;
+  for (let i = 0; i < raw.length; i++){
+    const ch = raw[i];
+    if (quoted){ if (ch === '"'){ if (raw[i + 1] === '"'){ cell += '"'; i++; } else quoted = false; } else cell += ch; continue; }
+    if (ch === '"' && cell === ''){ quoted = true; started = true; }
+    else if (ch === delimiter){ row.push(cell); cell = ''; started = true; }
+    else if (ch === '\n' || ch === '\r'){ if (ch === '\r' && raw[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; started = false; }
+    else { cell += ch; started = true; }
+  }
+  if (started || cell){ row.push(cell); rows.push(row); }
+  return rows;
+}
+function decodeBytes(buf){
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(buf).replace(/^﻿/, ''); }
+  catch { return new TextDecoder('euc-kr').decode(buf); }
+}
+const DRM_HINT = '파일을 열지 못했어요. 암호나 보안(DRM)이 걸린 파일일 수 있어요. 엑셀에서 열어 복사한 뒤 붙여넣기로 넣어 주세요.';
+async function fileSheets(file){
+  const lower = file.name.toLowerCase(), buf = await file.arrayBuffer();
+  if (/\.(csv|txt|tsv)$/.test(lower)){
+    const raw = decodeBytes(buf);
+    return [{name: file.name, rows: parseDelimited(raw, raw.split('\n', 1)[0].includes('\t') ? '\t' : ',')}];
+  }
+  if (!/\.(xlsx|xlsm|xls)$/.test(lower)) throw new UserError('xlsx, xls, csv 파일만 넣을 수 있어요.');
+  const head = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
+  if (/\.(xlsx|xlsm)$/.test(lower) && !(head[0] === 0x50 && head[1] === 0x4b)) throw new UserError(DRM_HINT);
+  let wb;
+  try { wb = XLSX.read(new Uint8Array(buf), {type: 'array', dense: true}); } catch { throw new UserError(DRM_HINT); }
+  return wb.SheetNames.filter(n => wb.Sheets[n] && wb.Sheets[n]['!ref']).map(n => ({name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: null, blankrows: false})}));
+}
+// 파일·시트 이름에서 연월 찾기: "2026년 11월", "2026-11", "202611"
+function monthFromName(s){
+  const m = String(s || '').match(/(20\d{2})\s*(?:년|[-._/])?\s*(\d{1,2})\s*월?/);
+  return m && +m[2] >= 1 && +m[2] <= 12 ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+}
+
+// ---------- 변환 ----------
+const QTY_RE = /^(\d{1,2})일edi납품수량$/, AMT_RE = /^(\d{1,2})일납품금액$/;
+function num(v){
+  if (typeof v === 'number') return v;
+  const s = text(v).replace(/[,₩\s]/g, '');
+  if (s === '' || s === '-') return 0;
+  const n = Number(s);
+  return isFinite(n) ? n : NaN;
+}
+// 긴 숫자 코드(바코드 등)는 엑셀에서 8.8E+12로 깨지지 않게 글자로 둔다
+function keepCode(v){
+  if (typeof v === 'number' && Number.isInteger(v) && Math.abs(v) >= 1e11) return String(v);
+  return v == null ? '' : v;
+}
+function convert(sheets, month){
+  if (!/^\d{4}-\d{2}$/.test(month || '')) throw new UserError('기준 연·월을 골라 주세요.');
+  const [y, mo] = month.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const out = [], warnings = [], errors = [];
+  let idHeads = null, sourceRows = 0, usedSheets = [];
+  for (const sheet of sheets){
+    const hi = sheet.rows.findIndex((r, i) => i < 30 && r && r.some(c => norm(c) === '단위') && r.some(c => QTY_RE.test(norm(c)) || AMT_RE.test(norm(c))));
+    if (hi < 0) continue;
+    const header = sheet.rows[hi].map(text);
+    const unitIdx = header.findIndex(h => norm(h) === '단위');
+    const heads = header.slice(0, unitIdx + 1);
+    if (!idHeads) idHeads = heads;
+    else if (heads.join('|') !== idHeads.join('|')) warnings.push(`${sheet.name}: 앞쪽 열 구성이 첫 시트와 달라요. 첫 시트 기준 열 이름으로 저장해요.`);
+    const days = new Map();
+    header.forEach((h, i) => {
+      const n = norm(h); let m;
+      if ((m = n.match(QTY_RE))){ const d = +m[1]; days.set(d, {...(days.get(d) || {}), q: i}); }
+      else if ((m = n.match(AMT_RE))){ const d = +m[1]; days.set(d, {...(days.get(d) || {}), a: i}); }
+    });
+    const dayList = [...days.keys()].sort((a, b) => a - b);
+    for (const d of dayList){
+      if (d < 1 || d > lastDay) errors.push(`${sheet.name}: ${d}일은 ${y}년 ${mo}월에 없는 날이에요.`);
+      if (days.get(d).q == null) warnings.push(`${sheet.name}: ${d}일 납품수량 열이 없어요 (빈칸으로 둠).`);
+      if (days.get(d).a == null) warnings.push(`${sheet.name}: ${d}일 납품금액 열이 없어요 (빈칸으로 둠).`);
+    }
+    if (errors.length) continue;
+    usedSheets.push(sheet.name);
+    for (let r = hi + 1; r < sheet.rows.length; r++){
+      const row = sheet.rows[r] || [];
+      if (!row.some(c => text(c))) continue;
+      sourceRows++;
+      const ids = heads.map((_, i) => keepCode(row[i]));
+      for (const d of dayList){
+        const {q, a} = days.get(d);
+        const qty = q == null ? '' : num(row[q]), amt = a == null ? '' : num(row[a]);
+        if (Number.isNaN(qty) || Number.isNaN(amt)){ errors.push(`${sheet.name} ${r + 1}행 ${d}일: 숫자가 아닌 값 (${text(row[q])} / ${text(row[a])})`); continue; }
+        out.push([...ids, new Date(y, mo - 1, d), qty, amt]);
+      }
+    }
+  }
+  if (!idHeads) throw new UserError('양식을 찾지 못했어요. 첫 줄에 "단위" 열과 "01 일 EDI납품수량", "01 일 납품금액" 같은 일자별 열이 있어야 해요.');
+  if (errors.length && !out.length) throw new UserError(errors.slice(0, 5).join(' / '));
+  return {heads: [...idHeads, '날짜', '납품수량', '납품금액'], rows: out, sourceRows, warnings, errors, sheets: usedSheets, month};
+}
+
+// ---------- 화면 ----------
+let result = null, sourceName = '';
+const isoDay = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+async function run(getSheets, name){
+  $('fail').classList.add('hide'); $('result').classList.add('hide'); $('busy').classList.remove('hide'); $('msg').textContent = '';
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const sheets = await getSheets();
+    const guess = monthFromName(name) || sheets.map(s => monthFromName(s.name)).find(Boolean);
+    if (guess) $('month').value = guess;
+    result = convert(sheets, $('month').value);
+    sourceName = name;
+    show();
+  } catch (e) {
+    if (!(e instanceof UserError)) console.error(e);
+    $('fail').textContent = e instanceof UserError ? e.message : `변환하지 못했어요: ${e.message}`;
+    $('fail').classList.remove('hide');
+  } finally { $('busy').classList.add('hide'); }
+}
+function show(){
+  const r = result;
+  const box = (l, v) => { const d = el('div', null, 'stat'); d.append(el('span', l), el('b', v)); return d; };
+  const qi = r.heads.length - 2, ai = r.heads.length - 1;
+  const sumQ = r.rows.reduce((s, x) => s + (Number(x[qi]) || 0), 0), sumA = r.rows.reduce((s, x) => s + (Number(x[ai]) || 0), 0);
+  $('stats').replaceChildren(box('원본 행', fmt(r.sourceRows)), box('변환된 행', fmt(r.rows.length)), box('납품수량 합계', fmt(sumQ)), box('납품금액 합계', fmt(sumA)));
+  const notes = $('notes'); notes.replaceChildren();
+  notes.append(el('p', `기준 연·월 ${r.month} · 읽은 곳: ${sourceName}${r.sheets.length ? ` (${r.sheets.join(', ')})` : ''}`, 'sub'));
+  for (const [list, cls, title] of [[r.errors, 'err', '확인이 필요해요'], [r.warnings, 'warn', '참고']]){
+    if (!list.length) continue;
+    const m = el('div', title, `msg ${cls}`), ul = el('ul');
+    list.slice(0, 20).forEach(t => ul.append(el('li', t)));
+    if (list.length > 20) ul.append(el('li', `외 ${list.length - 20}건`));
+    m.append(ul); notes.append(m);
+  }
+  const t = $('preview'); t.replaceChildren();
+  const hr = el('tr'); r.heads.forEach((h, i) => hr.append(el('th', h, i >= qi ? 'n' : '')));
+  const thead = el('thead'); thead.append(hr);
+  const tb = el('tbody');
+  for (const row of r.rows.slice(0, 200)){
+    const tr = el('tr');
+    row.forEach((v, i) => tr.append(el('td', v instanceof Date ? isoDay(v) : i >= qi ? fmt(v) : v, i >= qi ? 'n' : '')));
+    tb.append(tr);
+  }
+  t.append(thead, tb);
+  if (r.rows.length > 200) $('notes').append(el('p', `미리보기는 200행까지예요. 저장·복사에는 ${fmt(r.rows.length)}행 모두 들어가요.`, 'sub'));
+  $('result').classList.remove('hide');
+  $('result').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+function workbook(r){
+  const ws = XLSX.utils.aoa_to_sheet([r.heads, ...r.rows], {cellDates: true, dateNF: 'yyyy-m-d'});
+  const dateCol = r.heads.length - 3;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = 1; R <= range.e.r; R++){
+    const c = ws[XLSX.utils.encode_cell({r: R, c: dateCol})];
+    if (c && c.t === 'd'){ c.z = 'yyyy-m-d'; }
+  }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '변환');
+  return XLSX.write(wb, {type: 'array', bookType: 'xlsx', cellDates: true});
+}
+async function saveFile(name, make){
+  const type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (window.showSaveFilePicker){
+    let handle = null;
+    try { handle = await window.showSaveFilePicker({suggestedName: name, types: [{description: '엑셀 파일', accept: {[type]: ['.xlsx']}}]}); }
+    catch (e) { if (e.name === 'AbortError') return 'cancelled'; }
+    if (handle){ const w = await handle.createWritable(); await w.write(new Blob([make()], {type})); await w.close(); return 'saved'; }
+  }
+  const url = URL.createObjectURL(new Blob([make()], {type}));
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return 'downloaded';
+}
+function toTsv(r){
+  const clean = v => v instanceof Date ? isoDay(v) : String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ');
+  return [r.heads, ...r.rows].map(row => row.map(clean).join('\t')).join('\r\n') + '\r\n';
+}
+$('save').onclick = async () => {
+  if (!result) return;
+  $('save').disabled = true;
+  try {
+    const base = sourceName.replace(/\.[^.]+$/, '') || 'EDI';
+    const res = await saveFile(`${base}_날짜별.xlsx`, () => workbook(result));
+    $('msg').textContent = res === 'saved' ? '선택한 위치에 저장했어요.' : res === 'downloaded' ? '다운로드를 시작했어요. 받아지지 않으면 "표 복사"를 써 주세요.' : '';
+  } catch (e) { $('msg').textContent = `저장하지 못했어요: ${e.message}`; }
+  finally { $('save').disabled = false; }
+};
+$('copy').onclick = async () => {
+  if (!result) return;
+  try { await navigator.clipboard.writeText(toTsv(result)); $('msg').textContent = `${fmt(result.rows.length)}행을 복사했어요. 엑셀에서 Ctrl+V 하세요.`; }
+  catch (e) { $('msg').textContent = `복사하지 못했어요: ${e.message}`; }
+};
+$('month').addEventListener('change', () => { if (result && lastInput) run(lastInput.get, lastInput.name); });
+let lastInput = null;
+const take = (get, name) => { lastInput = {get, name}; run(get, name); };
+$('paste').addEventListener('click', () => $('paste').focus());
+document.addEventListener('paste', e => {
+  const raw = e.clipboardData.getData('text/plain');
+  if (!raw.trim()) return;
+  e.preventDefault();
+  take(async () => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}], '붙여넣기');
+});
+const drop = $('drop');
+const takeFile = f => { if (f) take(() => fileSheets(f), f.name); };
+drop.onclick = () => $('file').click();
+$('file').onchange = e => { takeFile(e.target.files[0]); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => takeFile(e.dataTransfer.files[0]));
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+{ const d = new Date(); $('month').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+</script>
+</body>
+</html>
