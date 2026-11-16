@@ -43,6 +43,8 @@ td.n,th.n{text-align:right}
 .actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
 .hide{display:none!important}
 .sub{color:var(--sub);font-size:13px}
+.zone.small{min-height:84px;padding:16px}
+.maptbl{max-height:220px;margin-top:12px}
 @media(max-width:800px){.inputs{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}main{padding:16px 16px 48px}header{padding:0 16px}}
 </style>
 </head>
@@ -50,6 +52,18 @@ td.n,th.n{text-align:right}
 <header><h1>EDI 양식 변환</h1></header>
 <main>
   <p class="notice">파일은 지금 쓰는 브라우저 안에서만 변환되고 어디로도 전송되지 않아요.</p>
+  <div class="card">
+    <h2>0. 채널 구분표</h2>
+    <p class="need"><b>EDI 관리코드명 · EDI 납품점포명 · 채널</b> 세 열로 된 표를 넣으면 변환 결과 맨 오른쪽에 <b>채널</b> 열이 붙어요. 점포명은 ① 똑같은 이름 → ② 그 글자가 들어간 점포(예: <b>EXP</b>, <b>VIC</b>) → ③ 점포명이 빈 줄(그 관리코드명의 나머지 전체) 순서로 찾아요. 다시 넣으면 통째로 바뀌고, 이 브라우저에 저장돼 다음에도 그대로 써요.</p>
+    <div class="inputs">
+      <div class="zone small" id="mapPaste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>구분표를 제목 행까지 복사해 붙여넣기</span></div>
+      <div class="zone small" id="mapDrop"><b>구분표 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
+    </div>
+    <input type="file" id="mapFile" class="hide" accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv">
+    <p id="mapFail" class="msg err hide" style="margin-top:14px"></p>
+    <div class="actions" style="margin-top:12px"><span class="sub" id="mapInfo"></span><button class="sec hide" id="mapClear">구분표 지우기</button></div>
+    <div class="tbl maptbl hide" id="mapBox"><table id="mapTable"></table></div>
+  </div>
   <div class="card">
     <h2>1. 자료 넣기</h2>
     <p class="need">일자별 열("01 일 EDI납품수량", "01 일 납품금액" …)이 옆으로 늘어선 EDI 엑셀을 넣으면, 앞쪽 열(구분 ~ 단위)은 그대로 두고 날짜마다 한 줄씩 <b>날짜 · 납품수량 · 납품금액</b>으로 바꿔요. 수량·금액이 0인 날도 모두 남겨요.</p>
@@ -136,12 +150,62 @@ function keepCode(v){
   if (typeof v === 'number' && Number.isInteger(v) && Math.abs(v) >= 1e11) return String(v);
   return v == null ? '' : v;
 }
-function convert(sheets, month){
+// ---------- 채널 구분표 ----------
+const MAP_KEY = 'edi-channel-map-v1';
+let chanMap = [];
+try { const v = JSON.parse(localStorage.getItem(MAP_KEY) || '[]'); if (Array.isArray(v)) chanMap = v; } catch {}
+function parseChannelMap(sheets){
+  for (const sheet of sheets){
+    const hi = sheet.rows.findIndex((r, i) => i < 30 && r && r.some(c => norm(c) === 'edi관리코드명') && r.some(c => norm(c) === '채널'));
+    if (hi < 0) continue;
+    const h = sheet.rows[hi].map(norm);
+    const ci = h.indexOf('edi관리코드명'), si = h.indexOf('edi납품점포명'), chi = h.indexOf('채널');
+    const out = [], seen = new Map(), errors = [];
+    for (let r = hi + 1; r < sheet.rows.length; r++){
+      const row = sheet.rows[r] || [];
+      const code = text(row[ci]), store = si < 0 ? '' : text(row[si]), ch = text(row[chi]);
+      if (!code && !store && !ch) continue;
+      if (!code){ errors.push(`${r + 1}행: EDI 관리코드명이 비어 있어요.`); continue; }
+      if (!ch){ errors.push(`${r + 1}행 (${code} / ${store || '점포 전체'}): 채널이 비어 있어요.`); continue; }
+      const k = norm(code) + '|' + norm(store);
+      if (seen.has(k)){
+        if (seen.get(k) !== ch) errors.push(`${code} / ${store || '점포 전체'}: 채널이 두 가지예요 (${seen.get(k)}, ${ch}).`);
+        continue;
+      }
+      seen.set(k, ch); out.push([code, store, ch]);
+    }
+    if (errors.length) throw new UserError('구분표를 확인해 주세요: ' + errors.slice(0, 5).join(' / ') + (errors.length > 5 ? ` 외 ${errors.length - 5}건` : ''));
+    if (!out.length) throw new UserError('구분표에 내용이 없어요.');
+    return out;
+  }
+  throw new UserError('구분표 양식을 찾지 못했어요. 제목 행에 "EDI 관리코드명", "EDI 납품점포명", "채널" 열이 있어야 해요.');
+}
+function channelLookup(map){
+  const exact = new Map(), whole = new Map(), keys = new Map();
+  for (const [code, store, ch] of map){
+    const c = norm(code), st = norm(store);
+    if (!st){ whole.set(c, ch); continue; }
+    exact.set(c + '|' + st, ch);
+    if (!keys.has(c)) keys.set(c, []);
+    keys.get(c).push([st, ch]);
+  }
+  // 글자 포함은 긴 글자부터 (더 구체적인 규칙 우선)
+  for (const list of keys.values()) list.sort((a, b) => b[0].length - a[0].length);
+  return (code, store) => {
+    const c = norm(code), st = norm(store);
+    if (exact.has(c + '|' + st)) return exact.get(c + '|' + st);
+    if (st) for (const [k, ch] of keys.get(c) || []) if (st.includes(k)) return ch;
+    return whole.get(c) || '';
+  };
+}
+
+function convert(sheets, month, map = []){
   if (!/^\d{4}-\d{2}$/.test(month || '')) throw new UserError('기준 연·월을 골라 주세요.');
   const [y, mo] = month.split('-').map(Number);
   const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   const out = [], warnings = [], errors = [];
   let idHeads = null, sourceRows = 0, usedSheets = [];
+  const useMap = map.length > 0, lookup = channelLookup(map), missing = new Map(), chanSum = new Map();
   for (const sheet of sheets){
     const hi = sheet.rows.findIndex((r, i) => i < 30 && r && r.some(c => norm(c) === '단위') && r.some(c => QTY_RE.test(norm(c)) || AMT_RE.test(norm(c))));
     if (hi < 0) continue;
@@ -164,22 +228,35 @@ function convert(sheets, month){
     }
     if (errors.length) continue;
     usedSheets.push(sheet.name);
+    const codeIdx = heads.findIndex(h => norm(h) === 'edi관리코드명'), storeIdx = heads.findIndex(h => norm(h) === 'edi납품점포명');
+    if (useMap && codeIdx < 0) warnings.push(`${sheet.name}: "EDI 관리코드명" 열이 없어 채널을 정하지 못했어요.`);
     for (let r = hi + 1; r < sheet.rows.length; r++){
       const row = sheet.rows[r] || [];
       if (!row.some(c => text(c))) continue;
       sourceRows++;
       const ids = heads.map((_, i) => keepCode(row[i]));
+      let chanOf = null;
+      if (useMap){
+        const code = codeIdx < 0 ? '' : text(row[codeIdx]), store = storeIdx < 0 ? '' : text(row[storeIdx]);
+        const ch = codeIdx < 0 ? '' : lookup(code, store);
+        if (!ch && codeIdx >= 0){ const k = `${code || '(빈칸)'} / ${store || '(점포 없음)'}`; missing.set(k, (missing.get(k) || 0) + 1); }
+        chanOf = ch;
+        const key = ch || '(채널 없음)', cs = chanSum.get(key) || {rows: 0, q: 0, a: 0};
+        for (const d of dayList){ const {q, a} = days.get(d); cs.q += q == null ? 0 : (num(row[q]) || 0); cs.a += a == null ? 0 : (num(row[a]) || 0); }
+        cs.rows++; chanSum.set(key, cs);
+      }
       for (const d of dayList){
         const {q, a} = days.get(d);
         const qty = q == null ? '' : num(row[q]), amt = a == null ? '' : num(row[a]);
         if (Number.isNaN(qty) || Number.isNaN(amt)){ errors.push(`${sheet.name} ${r + 1}행 ${d}일: 숫자가 아닌 값 (${text(row[q])} / ${text(row[a])})`); continue; }
-        out.push([...ids, new Date(y, mo - 1, d), qty, amt]);
+        out.push(useMap ? [...ids, new Date(y, mo - 1, d), qty, amt, chanOf] : [...ids, new Date(y, mo - 1, d), qty, amt]);
       }
     }
   }
   if (!idHeads) throw new UserError('양식을 찾지 못했어요. 첫 줄에 "단위" 열과 "01 일 EDI납품수량", "01 일 납품금액" 같은 일자별 열이 있어야 해요.');
   if (errors.length && !out.length) throw new UserError(errors.slice(0, 5).join(' / '));
-  return {heads: [...idHeads, '날짜', '납품수량', '납품금액'], rows: out, sourceRows, warnings, errors, sheets: usedSheets, month};
+  for (const [k, n] of missing) errors.push(`채널 구분표에 없는 조합: ${k} (원본 ${n}행) → 채널 빈칸`);
+  return {heads: [...idHeads, '날짜', '납품수량', '납품금액', ...(useMap ? ['채널'] : [])], rows: out, sourceRows, warnings, errors, sheets: usedSheets, month, chanSum: useMap ? chanSum : null};
 }
 
 // ---------- 화면 ----------
@@ -192,7 +269,7 @@ async function run(getSheets, name){
     const sheets = await getSheets();
     const guess = monthFromName(name) || sheets.map(s => monthFromName(s.name)).find(Boolean);
     if (guess) $('month').value = guess;
-    result = convert(sheets, $('month').value);
+    result = convert(sheets, $('month').value, chanMap);
     sourceName = name;
     show();
   } catch (e) {
@@ -204,7 +281,7 @@ async function run(getSheets, name){
 function show(){
   const r = result;
   const box = (l, v) => { const d = el('div', null, 'stat'); d.append(el('span', l), el('b', v)); return d; };
-  const qi = r.heads.length - 2, ai = r.heads.length - 1;
+  const qi = r.heads.indexOf('납품수량'), ai = r.heads.indexOf('납품금액'), isN = i => i === qi || i === ai;
   const sumQ = r.rows.reduce((s, x) => s + (Number(x[qi]) || 0), 0), sumA = r.rows.reduce((s, x) => s + (Number(x[ai]) || 0), 0);
   $('stats').replaceChildren(box('원본 행', fmt(r.sourceRows)), box('변환된 행', fmt(r.rows.length)), box('납품수량 합계', fmt(sumQ)), box('납품금액 합계', fmt(sumA)));
   const notes = $('notes'); notes.replaceChildren();
@@ -216,13 +293,21 @@ function show(){
     if (list.length > 20) ul.append(el('li', `외 ${list.length - 20}건`));
     m.append(ul); notes.append(m);
   }
+  if (r.chanSum){
+    const box2 = el('div', null, 'tbl'); box2.style.margin = '0 0 12px'; box2.style.maxHeight = '240px';
+    const ct = el('table'), h2 = el('tr');
+    ['채널', '원본 행', '납품수량', '납품금액'].forEach((h, i) => h2.append(el('th', h, i ? 'n' : '')));
+    const th2 = el('thead'); th2.append(h2); const tb2 = el('tbody');
+    [...r.chanSum].sort((a, b) => b[1].a - a[1].a).forEach(([ch, v]) => { const tr = el('tr'); tr.append(el('td', ch), el('td', fmt(v.rows), 'n'), el('td', fmt(v.q), 'n'), el('td', fmt(v.a), 'n')); tb2.append(tr); });
+    ct.append(th2, tb2); box2.append(ct); notes.append(el('p', '채널별 합계', 'sub'), box2);
+  } else notes.append(el('p', '채널 구분표가 없어 채널 열 없이 변환했어요. 위 "0. 채널 구분표"에 표를 넣으면 채널 열이 붙어요.', 'sub'));
   const t = $('preview'); t.replaceChildren();
-  const hr = el('tr'); r.heads.forEach((h, i) => hr.append(el('th', h, i >= qi ? 'n' : '')));
+  const hr = el('tr'); r.heads.forEach((h, i) => hr.append(el('th', h, isN(i) ? 'n' : '')));
   const thead = el('thead'); thead.append(hr);
   const tb = el('tbody');
   for (const row of r.rows.slice(0, 200)){
     const tr = el('tr');
-    row.forEach((v, i) => tr.append(el('td', v instanceof Date ? isoDay(v) : i >= qi ? fmt(v) : v, i >= qi ? 'n' : '')));
+    row.forEach((v, i) => tr.append(el('td', v instanceof Date ? isoDay(v) : isN(i) ? fmt(v) : v, isN(i) ? 'n' : '')));
     tb.append(tr);
   }
   t.append(thead, tb);
@@ -232,7 +317,7 @@ function show(){
 }
 function workbook(r){
   const ws = XLSX.utils.aoa_to_sheet([r.heads, ...r.rows], {cellDates: true, dateNF: 'yyyy-m-d'});
-  const dateCol = r.heads.length - 3;
+  const dateCol = r.heads.indexOf('날짜');
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let R = 1; R <= range.e.r; R++){
     const c = ws[XLSX.utils.encode_cell({r: R, c: dateCol})];
@@ -278,10 +363,47 @@ $('month').addEventListener('change', () => { if (result && lastInput) run(lastI
 let lastInput = null;
 const take = (get, name) => { lastInput = {get, name}; run(get, name); };
 $('paste').addEventListener('click', () => $('paste').focus());
+function setMap(getSheets){
+  $('mapFail').classList.add('hide');
+  Promise.resolve().then(getSheets).then(sheets => {
+    chanMap = parseChannelMap(sheets);
+    try { localStorage.setItem(MAP_KEY, JSON.stringify(chanMap)); } catch {}
+    showMap();
+    if (lastInput) run(lastInput.get, lastInput.name);
+  }).catch(e => {
+    $('mapFail').textContent = e instanceof UserError ? e.message : `구분표를 읽지 못했어요: ${e.message}`;
+    $('mapFail').classList.remove('hide');
+  });
+}
+function showMap(){
+  $('mapInfo').textContent = chanMap.length ? `저장된 구분표 ${fmt(chanMap.length)}줄 · 채널 ${new Set(chanMap.map(m => m[2])).size}개` : '아직 구분표가 없어요.';
+  $('mapClear').classList.toggle('hide', !chanMap.length);
+  $('mapBox').classList.toggle('hide', !chanMap.length);
+  const t = $('mapTable'); t.replaceChildren();
+  if (!chanMap.length) return;
+  const hr = el('tr'); ['EDI 관리코드명', 'EDI 납품점포명', '채널'].forEach(h => hr.append(el('th', h)));
+  const th = el('thead'); th.append(hr); const tb = el('tbody');
+  chanMap.forEach(([c, s, ch]) => { const tr = el('tr'); tr.append(el('td', c), el('td', s || '(점포 전체)'), el('td', ch)); tb.append(tr); });
+  t.append(th, tb);
+}
+$('mapClear').onclick = () => {
+  if (!confirm('저장된 채널 구분표를 지울까요?')) return;
+  chanMap = []; try { localStorage.removeItem(MAP_KEY); } catch {}
+  showMap(); if (lastInput) run(lastInput.get, lastInput.name);
+};
+$('mapPaste').addEventListener('click', () => $('mapPaste').focus());
+const mapDrop = $('mapDrop');
+mapDrop.onclick = () => $('mapFile').click();
+$('mapFile').onchange = e => { const f = e.target.files[0]; if (f) setMap(() => fileSheets(f)); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => mapDrop.addEventListener(t, e => { e.preventDefault(); mapDrop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => mapDrop.addEventListener(t, e => { e.preventDefault(); mapDrop.classList.remove('over'); }));
+mapDrop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) setMap(() => fileSheets(f)); });
+showMap();
 document.addEventListener('paste', e => {
   const raw = e.clipboardData.getData('text/plain');
   if (!raw.trim()) return;
   e.preventDefault();
+  if (document.activeElement === $('mapPaste')){ setMap(() => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}]); return; }
   take(async () => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}], '붙여넣기');
 });
 const drop = $('drop');
