@@ -66,7 +66,7 @@ td.n,th.n{text-align:right}
   </div>
   <div class="card">
     <h2>1. 자료 넣기</h2>
-    <p class="need">일자별 열("01 일 EDI납품수량", "01 일 납품금액" …)이 옆으로 늘어선 EDI 엑셀을 넣으면, 앞쪽 열(구분 ~ 단위)은 그대로 두고(납품거래처·납품거래처명 열은 빼요) 날짜마다 한 줄씩 <b>날짜 · 납품수량 · 납품금액</b>으로 바꿔요. 수량·금액이 0인 날도 모두 남겨요.</p>
+    <p class="need">일자별 열("01 일 EDI납품수량", "01 일 납품금액" …)이 옆으로 늘어선 EDI 엑셀을 넣으면, 앞쪽 열(구분 ~ 단위)은 그대로 두고(납품거래처·납품거래처명 열은 빼고, EDI 납품점포·점포명·발주 총수량·총금액은 칸만 비운 뒤 같아진 줄은 합쳐요) 날짜마다 한 줄씩 <b>날짜 · 납품수량 · 납품금액</b>으로 바꿔요. 수량·금액이 0인 날도 모두 남겨요.</p>
     <label class="fld">기준 연·월 ("01 일"이 이 달의 1일)<input type="month" id="month"></label>
     <div class="inputs">
       <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 제목 행까지 복사해 붙여넣기</span></div>
@@ -138,6 +138,8 @@ function monthFromName(s){
 
 // ---------- 변환 ----------
 const DROP_COLS = new Set(['납품거래처', '납품거래처명']);
+// 열은 남기고 값만 비우는 열 (비운 뒤 같아진 줄은 합친다)
+const BLANK_COLS = new Set(['edi납품점포', 'edi납품점포명', 'edi발주총수량', 'edi발주총금액']);
 const QTY_RE = /^(\d{1,2})일edi납품수량$/, AMT_RE = /^(\d{1,2})일납품금액$/;
 function num(v){
   if (typeof v === 'number') return v;
@@ -205,7 +207,7 @@ function convert(sheets, month, map = []){
   const [y, mo] = month.split('-').map(Number);
   const lastDay = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   const out = [], warnings = [], errors = [];
-  let idHeads = null, sourceRows = 0, usedSheets = [];
+  let idHeads = null, sourceRows = 0, usedSheets = [], srcQ = 0, srcA = 0;
   const useMap = map.length > 0, lookup = channelLookup(map), missing = new Map(), chanSum = new Map();
   for (const sheet of sheets){
     const hi = sheet.rows.findIndex((r, i) => i < 30 && r && r.some(c => norm(c) === '단위') && r.some(c => QTY_RE.test(norm(c)) || AMT_RE.test(norm(c))));
@@ -238,6 +240,7 @@ function convert(sheets, month, map = []){
       if (!row.some(c => text(c))) continue;
       sourceRows++;
       const ids = keep.map(i => keepCode(row[i]));
+      keep.forEach((src, j) => { if (BLANK_COLS.has(norm(header[src]))) ids[j] = ''; });
       let chanOf = null;
       if (useMap){
         const code = codeIdx < 0 ? '' : text(row[codeIdx]), store = storeIdx < 0 ? '' : text(row[storeIdx]);
@@ -252,14 +255,25 @@ function convert(sheets, month, map = []){
         const {q, a} = days.get(d);
         const qty = q == null ? '' : num(row[q]), amt = a == null ? '' : num(row[a]);
         if (Number.isNaN(qty) || Number.isNaN(amt)){ errors.push(`${sheet.name} ${r + 1}행 ${d}일: 숫자가 아닌 값 (${text(row[q])} / ${text(row[a])})`); continue; }
+        srcQ += Number(qty) || 0; srcA += Number(amt) || 0;
         out.push(useMap ? [...ids, new Date(y, mo - 1, d), qty, amt, chanOf] : [...ids, new Date(y, mo - 1, d), qty, amt]);
       }
     }
   }
   if (!idHeads) throw new UserError('양식을 찾지 못했어요. 첫 줄에 "단위" 열과 "01 일 EDI납품수량", "01 일 납품금액" 같은 일자별 열이 있어야 해요.');
   if (errors.length && !out.length) throw new UserError(errors.slice(0, 5).join(' / '));
+  // 점포를 비워 같아진 줄(같은 제품·채널·날짜 등)은 한 줄로 합치고 수량·금액을 더한다
+  const qPos = idHeads.length + 1, aPos = idHeads.length + 2, merged = new Map();
+  for (const row of out){
+    const k = JSON.stringify(row.map((v, i) => i === qPos || i === aPos ? null : v instanceof Date ? +v : v));
+    const m = merged.get(k);
+    if (!m){ merged.set(k, row); continue; }
+    for (const i of [qPos, aPos]) if (row[i] !== '') m[i] = (Number(m[i]) || 0) + row[i];
+  }
+  const mergedRows = out.length - merged.size;
+  out.length = 0; for (const row of merged.values()) out.push(row);
   for (const [k, n] of missing) errors.push(`채널 구분표에 없는 조합: ${k} (원본 ${n}행) → 채널 빈칸`);
-  return {heads: [...idHeads, '날짜', '납품수량', '납품금액', ...(useMap ? ['채널'] : [])], rows: out, sourceRows, warnings, errors, sheets: usedSheets, month, chanSum: useMap ? chanSum : null};
+  return {heads: [...idHeads, '날짜', '납품수량', '납품금액', ...(useMap ? ['채널'] : [])], rows: out, sourceRows, warnings, errors, sheets: usedSheets, month, chanSum: useMap ? chanSum : null, mergedRows, srcQ, srcA};
 }
 
 // ---------- 화면 ----------
@@ -288,6 +302,8 @@ function show(){
   const sumQ = r.rows.reduce((s, x) => s + (Number(x[qi]) || 0), 0), sumA = r.rows.reduce((s, x) => s + (Number(x[ai]) || 0), 0);
   $('stats').replaceChildren(box('원본 행', fmt(r.sourceRows)), box('변환된 행', fmt(r.rows.length)), box('납품수량 합계', fmt(sumQ)), box('납품금액 합계', fmt(sumA)));
   const notes = $('notes'); notes.replaceChildren();
+  const same = Math.abs(sumA - r.srcA) < 0.005 && Math.abs(sumQ - r.srcQ) < 0.005;
+  notes.append(el('p', `원본 합계 납품수량 ${fmt(r.srcQ)} · 납품금액 ${fmt(r.srcA)} → 변환 결과 ${fmt(sumQ)} · ${fmt(sumA)} ${same ? '✔ 일치' : '✖ 불일치'}${r.mergedRows ? ` · 점포를 비워 같아진 ${fmt(r.mergedRows)}줄을 합쳤어요` : ''}`, `msg ${same ? 'ok' : 'err'}`));
   notes.append(el('p', `기준 연·월 ${r.month} · 읽은 곳: ${sourceName}${r.sheets.length ? ` (${r.sheets.join(', ')})` : ''}`, 'sub'));
   for (const [list, cls, title] of [[r.errors, 'err', '확인이 필요해요'], [r.warnings, 'warn', '참고']]){
     if (!list.length) continue;
