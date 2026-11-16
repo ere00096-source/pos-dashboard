@@ -1280,7 +1280,14 @@ async function lookupCode(){
   const runs = text($('lookupCode').value).match(/\d{3,}/g);
   if (!runs){ out.append(el('p', '88코드 숫자를 입력해 주세요.', 'msg err')); return; }
   const c = runs.sort((a, b) => b.length - a.length)[0];
-  const [mapping, pos, product] = await Promise.all(['mapping', 'pos', 'product'].map(getAll));
+  const [mapping, pos, product, promo, channels, margin] = await Promise.all(['mapping', 'pos', 'product', 'promo', 'channels', 'margin'].map(getAll));
+  const spans = new Map();
+  for (const r of promo){
+    if (!spans.has(r.channel)) spans.set(r.channel, []);
+    spans.get(r.channel).push({label: r.roundLabel || `${r.month}월${r.round}`, start: r.start, end: r.end});
+  }
+  const basisOf = new Map(channels.map(ch => [ch.channel2, ch.basis || '']));
+  const roundAgg = new Map();
   const maps = mapping.filter(m => m.code88 === c);
   const known = new Set(product.map(p => p.productCode));
   const posAgg = new Map();
@@ -1289,6 +1296,13 @@ async function lookupCode(){
     const e = posAgg.get(p.channel) || {rows: 0, qty: 0, amount: 0, name: p.name};
     e.rows++; e.qty += p.qty; e.amount += p.amount;
     posAgg.set(p.channel, e);
+    const s = (spans.get(p.channel) || []).find(s => s.start <= p.date && p.date <= s.end);
+    const rk = p.channel + '|' + (s ? s.label : '');
+    const ra = roundAgg.get(rk) || {ch: p.channel, label: s ? s.label : '', first: p.date, last: p.date, qty: 0, days: 0};
+    ra.qty += p.qty; ra.days++;
+    if (p.date < ra.first) ra.first = p.date;
+    if (p.date > ra.last) ra.last = p.date;
+    roundAgg.set(rk, ra);
   }
   out.append(el('p', `조회한 코드: ${c}`, 'sub'));
   const verdicts = el('ul');
@@ -1310,6 +1324,16 @@ async function lookupCode(){
       else msg = `${ch}: 매칭표에 이 88코드가 아예 없어요. 엑셀에는 있는데 여기 없다면 업로드할 때 오류로 빠졌을 수 있어요 (88코드가 8.8E+12처럼 깨졌거나, 전환수량이 글자인 경우 등). 그 행만 다시 올려 보면 저장 전 화면에 오류 이유가 나와요.`;
     }
     verdicts.append(el('li', msg));
+    // 대시보드에 안 보이는 다른 이유: 채널 기준, 행사차수
+    const basis = basisOf.get(ch);
+    if (basis === 'X') verdicts.append(el('li', `${ch}: 채널 기준에서 관리 제외(X) 채널이라 대시보드에 나오지 않아요.`));
+    else if (basis && basis.includes('납품') && !margin.length) verdicts.append(el('li', `${ch}: 납품가 채널이라 매익률표(데이터 업로드 → 8. 매익률)를 올려야 대시보드에 나와요.`));
+    const outside = roundAgg.get(ch + '|');
+    if (outside && outside.qty){
+      const list = (spans.get(ch) || []).slice().sort((a, b) => a.end < b.end ? -1 : 1);
+      const lastRound = list.length ? `${list[list.length - 1].label} (~${list[list.length - 1].end})` : '없음';
+      verdicts.append(el('li', `${ch}: ${outside.first} ~ ${outside.last} 사이 판매 ${fmt(outside.qty)}개(${fmt(outside.days)}일치)가 어느 행사차수에도 들어가지 않아 대시보드 "차수별" 보기에서는 안 보여요. "일자별" 보기에서는 보여요. 이 채널의 행사차수에 그 기간이 있는지 확인해 주세요. 이 채널의 마지막 차수: ${lastRound}`));
+    }
   }
   const box = el('div', null, 'msg warn'); box.append(el('b', '판정'), verdicts); out.append(box);
   if (maps.length){
@@ -1321,6 +1345,10 @@ async function lookupCode(){
     out.append(el('p', 'POS RAW의 채널별 판매 (채널은 따옴표로 표시)', 'sub'));
     const h = el('div'); out.append(h);
     table(h, ['채널', 'POS 건수', '판매수량', '판매금액', 'POS 제품명'], [...posAgg].map(([ch, e]) => [JSON.stringify(ch), fmt(e.rows), fmt(e.qty), fmt(e.amount), e.name]), i => i >= 1 && i <= 3);
+    out.append(el('p', '채널·행사차수별 판매 ("차수 외"는 어느 행사차수에도 들어가지 않는 날짜)', 'sub'));
+    const h2 = el('div'); out.append(h2);
+    const ra = [...roundAgg.values()].sort((a, b) => a.ch.localeCompare(b.ch) || (a.first < b.first ? -1 : 1));
+    table(h2, ['채널', '행사차수', '첫 판매일', '마지막 판매일', '판매일수', '판매수량'], ra.map(r => [r.ch, r.label || '차수 외', r.first, r.last, fmt(r.days), fmt(r.qty)]), i => i >= 4);
   }
 }
 $('lookupBtn').onclick = () => lookupCode().catch(e => $('lookupResult').replaceChildren(el('p', `조회하지 못했어요: ${e.message}`, 'msg err')));
