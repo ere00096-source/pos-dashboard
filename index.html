@@ -64,6 +64,20 @@ td.n,th.n{text-align:right}
 #dKpi .stat span+b+span{margin-top:4px;color:var(--warn)}
 button.rowlink{background:none;border:0;color:var(--pri);font:inherit;cursor:pointer;padding:0;text-align:left}
 button.rowlink:hover{text-decoration:underline}
+.picker{position:relative}
+.picker summary{list-style:none;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.picker summary::-webkit-details-marker{display:none}
+.picker-pop{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:min(420px,calc(100vw - 48px));background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgba(11,11,11,.12);padding:10px}
+.picker-pop input{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:14px}
+.picker-list{max-height:280px;overflow:auto;margin-top:8px}
+.picker-list label{display:flex;gap:8px;align-items:flex-start;padding:5px 4px;font-size:13px;color:var(--ink);cursor:pointer;border-radius:4px}
+.picker-list label:hover{background:var(--pri-soft)}
+.chart-head{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:#fff;border:0;padding:8px 16px;font:inherit;color:var(--sub);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--pri-soft);color:var(--pri);font-weight:700}
+.chart-box{position:relative;height:360px;background:#fcfcfb;border:1px solid var(--line);border-radius:6px;padding:10px}
 @media(max-width:800px){.tabs,.stats,#counts,#reviewTabs,#dKpi,.filters{grid-template-columns:repeat(2,minmax(0,1fr))}header h1{font-size:15px}nav button{padding:0 8px}.inputs{grid-template-columns:1fr}header{gap:12px;padding:0 16px}main{padding:16px 16px 48px}}
 </style>
 </head>
@@ -149,6 +163,13 @@ button.rowlink:hover{text-decoration:underline}
         <label class="fld">수량 기준<select id="dView"><option value="product">제품코드 (낱개 환산)</option><option value="code">88코드 (RAW 수량)</option></select></label>
         <label class="fld">대분류<select id="dMajor"></select></label>
         <label class="fld">소분류<select id="dMinor"></select></label>
+        <label class="fld">행사분류<select id="dPromo"></select></label>
+        <div class="fld">제품 선택
+          <details id="dPicker" class="picker"><summary id="dPickerSum">전체 제품</summary>
+            <div class="picker-pop"><input id="dPickerQ" placeholder="제품명·코드로 찾기"><div id="dPickerList" class="picker-list"></div>
+              <div class="actions" style="margin-top:8px"><button class="sec" id="dPickerClear" type="button">선택 해제</button><span class="sub" id="dPickerInfo"></span></div></div>
+          </details>
+        </div>
         <label class="fld">제품 검색<input id="dQuery" placeholder="코드 또는 이름"></label>
         <label class="fld">지표<select id="dMetric"><option value="qty">판매수량</option><option value="amount">판매금액</option><option value="price">단가</option></select></label>
       </div>
@@ -156,10 +177,19 @@ button.rowlink:hover{text-decoration:underline}
       <p class="sub" id="dNotice" style="margin:12px 0 0"></p>
     </div>
     <div class="stats" id="dKpi"></div>
+    <div class="card" id="dChartCard">
+      <div class="chart-head">
+        <div class="seg" id="dChartKind"><button type="button" data-kind="flow" class="on">판매 흐름</button><button type="button" data-kind="channel">채널별 판매</button></div>
+        <label class="fld" style="min-width:150px">값<select id="dChartMetric"><option value="qty">판매수량</option><option value="amount">판매금액</option><option value="both">수량 + 금액</option></select></label>
+        <div class="actions hide" id="dTrendRange" style="margin:0"><label class="fld">시작일<input type="date" id="dFrom"></label><label class="fld">종료일<input type="date" id="dTo"></label></div>
+      </div>
+      <h2 id="dChartTitle" style="margin:14px 0 4px"></h2>
+      <p class="need" id="dChartNote"></p>
+      <div class="chart-box"><canvas id="dChart" role="img"></canvas></div>
+    </div>
     <div class="card"><h2 id="dT1Title">채널 비교</h2><p class="need" id="dT1Note"></p><div id="dT1"></div></div>
     <div class="card hide" id="dDetail">
       <h2 id="dT2Title"></h2>
-      <div class="actions hide" id="dTrendRange" style="margin:0 0 12px"><label class="fld">시작일<input type="date" id="dFrom"></label><label class="fld">종료일<input type="date" id="dTo"></label></div>
       <p class="need" id="dT2Note"></p>
       <div id="dT2"></div>
       <h2 id="dT3Title" style="margin-top:20px">88코드별 상세 (선택한 기간)</h2>
@@ -1372,7 +1402,8 @@ $('navDash').onclick = () => show('dash');
 $('navListing').onclick = () => show('listing');
 renderTabs();
 </script>
-<script src="dash.js?v=20261116a"></script>
-<script src="listing.js?v=20261116a"></script>
+<script src="chart.umd.js"></script>
+<script src="dash.js?v=20261116c"></script>
+<script src="listing.js?v=20261116c"></script>
 </body>
 </html>
