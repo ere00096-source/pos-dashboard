@@ -315,10 +315,10 @@ function show(){
   if (r.chanSum){
     const box2 = el('div', null, 'tbl'); box2.style.margin = '0 0 12px'; box2.style.maxHeight = '240px';
     const ct = el('table'), h2 = el('tr');
-    ['채널', '원본 행', '납품수량', '납품금액'].forEach((h, i) => h2.append(el('th', h, i ? 'n' : '')));
+    ['채널', '원본 행', '납품수량 (기간 전체)', '납품금액 (기간 전체)'].forEach((h, i) => h2.append(el('th', h, i ? 'n' : '')));
     const th2 = el('thead'); th2.append(h2); const tb2 = el('tbody');
     [...r.chanSum].sort((a, b) => b[1].a - a[1].a).forEach(([ch, v]) => { const tr = el('tr'); tr.append(el('td', ch), el('td', fmt(v.rows), 'n'), el('td', fmt(v.q), 'n'), el('td', fmt(v.a), 'n')); tb2.append(tr); });
-    ct.append(th2, tb2); box2.append(ct); notes.append(el('p', '채널별 합계', 'sub'), box2);
+    ct.append(th2, tb2); box2.append(ct); notes.append(el('p', '채널별 합계 — 올린 기간 전체(모든 날짜)를 더한 값이에요', 'sub'), box2);
   } else notes.append(el('p', '채널 구분표가 없어 채널 열 없이 변환했어요. 위 "0. 채널 구분표"에 표를 넣으면 채널 열이 붙어요.', 'sub'));
   const t = $('preview'); t.replaceChildren();
   const hr = el('tr'); r.heads.forEach((h, i) => hr.append(el('th', h, isN(i) ? 'n' : '')));
