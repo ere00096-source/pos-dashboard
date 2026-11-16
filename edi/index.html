@@ -66,7 +66,7 @@ td.n,th.n{text-align:right}
   </div>
   <div class="card">
     <h2>1. 자료 넣기</h2>
-    <p class="need">일자별 열("01 일 EDI납품수량", "01 일 납품금액" …)이 옆으로 늘어선 EDI 엑셀을 넣으면, 앞쪽 열(구분 ~ 단위)은 그대로 두고 날짜마다 한 줄씩 <b>날짜 · 납품수량 · 납품금액</b>으로 바꿔요. 수량·금액이 0인 날도 모두 남겨요.</p>
+    <p class="need">일자별 열("01 일 EDI납품수량", "01 일 납품금액" …)이 옆으로 늘어선 EDI 엑셀을 넣으면, 앞쪽 열(구분 ~ 단위)은 그대로 두고(납품거래처·납품거래처명 열은 빼요) 날짜마다 한 줄씩 <b>날짜 · 납품수량 · 납품금액</b>으로 바꿔요. 수량·금액이 0인 날도 모두 남겨요.</p>
     <label class="fld">기준 연·월 ("01 일"이 이 달의 1일)<input type="month" id="month"></label>
     <div class="inputs">
       <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 제목 행까지 복사해 붙여넣기</span></div>
@@ -137,6 +137,7 @@ function monthFromName(s){
 }
 
 // ---------- 변환 ----------
+const DROP_COLS = new Set(['납품거래처', '납품거래처명']);
 const QTY_RE = /^(\d{1,2})일edi납품수량$/, AMT_RE = /^(\d{1,2})일납품금액$/;
 function num(v){
   if (typeof v === 'number') return v;
@@ -211,7 +212,9 @@ function convert(sheets, month, map = []){
     if (hi < 0) continue;
     const header = sheet.rows[hi].map(text);
     const unitIdx = header.findIndex(h => norm(h) === '단위');
-    const heads = header.slice(0, unitIdx + 1);
+    // 납품거래처·납품거래처명 열은 결과에서 뺀다
+    const keep = header.slice(0, unitIdx + 1).map((h, i) => i).filter(i => !DROP_COLS.has(norm(header[i])));
+    const heads = keep.map(i => header[i]);
     if (!idHeads) idHeads = heads;
     else if (heads.join('|') !== idHeads.join('|')) warnings.push(`${sheet.name}: 앞쪽 열 구성이 첫 시트와 달라요. 첫 시트 기준 열 이름으로 저장해요.`);
     const days = new Map();
@@ -228,13 +231,13 @@ function convert(sheets, month, map = []){
     }
     if (errors.length) continue;
     usedSheets.push(sheet.name);
-    const codeIdx = heads.findIndex(h => norm(h) === 'edi관리코드명'), storeIdx = heads.findIndex(h => norm(h) === 'edi납품점포명');
+    const codeIdx = header.findIndex(h => norm(h) === 'edi관리코드명'), storeIdx = header.findIndex(h => norm(h) === 'edi납품점포명');
     if (useMap && codeIdx < 0) warnings.push(`${sheet.name}: "EDI 관리코드명" 열이 없어 채널을 정하지 못했어요.`);
     for (let r = hi + 1; r < sheet.rows.length; r++){
       const row = sheet.rows[r] || [];
       if (!row.some(c => text(c))) continue;
       sourceRows++;
-      const ids = heads.map((_, i) => keepCode(row[i]));
+      const ids = keep.map(i => keepCode(row[i]));
       let chanOf = null;
       if (useMap){
         const code = codeIdx < 0 ? '' : text(row[codeIdx]), store = storeIdx < 0 ? '' : text(row[storeIdx]);
