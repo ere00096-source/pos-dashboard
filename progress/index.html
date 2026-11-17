@@ -50,7 +50,7 @@ tr.total td.grp{background:#f1f4f8}
 td.lab{color:var(--sub)}
 tr.amt td.lab{color:var(--ink);font-weight:700}
 .neg{color:var(--err)}
-.summary{max-width:720px}
+.summary{max-width:960px}
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 @media(max-width:900px){.inputs{grid-template-columns:1fr}main{padding:16px 16px 48px}header{padding:0 16px}}
 </style>
@@ -84,7 +84,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
 
     <div class="card">
       <h2>결과뷰 1 · 요약</h2>
-      <div class="filters"><label>채널<select id="sCh"></select></label></div>
+      <div class="filters"><label>팀<select id="sTeam"></select></label><label>채널<select id="sCh"></select></label></div>
       <div class="tbl summary"><table id="sumTable"></table></div>
       <p class="sub" style="margin:8px 0 0">진척율 = 現 실적 ÷ Rolling. 비용율 = 비용 ÷ 총매출, 원가율 = 변동원가 ÷ 총매출, 공헌이익율 = 공헌이익 ÷ 총매출.</p>
     </div>
@@ -92,6 +92,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
     <div class="card">
       <h2>결과뷰 2 · 상세</h2>
       <div class="filters">
+        <label>팀<select id="dTeam"></select></label>
         <label>채널<select id="dCh"></select></label>
         <label>대카테고리<select id="dMajor"></select></label>
         <label>소카테고리<select id="dMinor"></select></label>
@@ -233,7 +234,7 @@ function monthRows(){
   const list = st.data.items.filter(i => i.m === st.month);
   const altCh = new Set(list.filter(i => i.alt).map(i => i.ch));
   const Z = zero();
-  return {altCh, rows: list.map(i => ({ch: i.ch, major: i.major, minor: i.minor, R: (altCh.has(i.ch) ? i.alt : i.roll) || Z, A: i.act || Z}))};
+  return {altCh, rows: list.map(i => ({team: i.team || '-', ch: i.ch, major: i.major, minor: i.minor, R: (altCh.has(i.ch) ? i.alt : i.roll) || Z, A: i.act || Z}))};
 }
 function sum(rows){
   const R = zero(), A = zero();
@@ -242,6 +243,17 @@ function sum(rows){
 }
 const rate = (o, k) => o.sales ? o[k] / o.sales : null;
 const channels = rows => [...new Set(rows.map(r => r.ch))].sort(ko);
+const teams = rows => [...new Set(rows.map(r => r.team))].sort(ko);
+// 팀·채널 필터 적용 + 표 맨 왼쪽에 넣을 팀/채널 이름
+function scoped(rows, teamSel, chSel){
+  const team = $(teamSel).value, ch = $(chSel).value;
+  const f = rows.filter(r => (!team || r.team === team) && (!ch || r.ch === ch));
+  const teamLab = ch ? teams(rows.filter(r => r.ch === ch)).join(', ') : (team || '전체');
+  return {f, ch, team, teamLab, chLab: ch || '전체'};
+}
+function scopeCells(tr, sc, span){
+  for (const v of [sc.teamLab, sc.chLab]){ const td = el('td', v, 'grp'); td.rowSpan = span; tr.append(td); }
+}
 
 // ---------- 기준일 ----------
 const DAY_KEY = 'progress-base-day-v1';
@@ -273,19 +285,22 @@ function renderDays(rows, altCh){
 // ---------- 결과뷰 1 ----------
 const SUM_ROWS = [['총매출', 'sales', true], ['비용율', 'cost', false], ['원가율', 'cogs', false], ['공헌이익', 'cm', true], ['공헌이익율', 'cm', false]];
 function summaryData(rows){
-  const ch = $('sCh').value, s = sum(ch ? rows.filter(r => r.ch === ch) : rows);
-  return SUM_ROWS.map(([lab, k, amt]) => amt
+  const sc = scoped(rows, 'sTeam', 'sCh'), s = sum(sc.f);
+  const out = SUM_ROWS.map(([lab, k, amt]) => amt
     ? {lab, amt, r: s.R[k], a: s.A[k], prog: s.R[k] ? s.A[k] / s.R[k] : null}
     : {lab, amt, r: rate(s.R, k), a: rate(s.A, k), prog: null});
+  out.scope = sc;
+  return out;
 }
 function renderSummary(rows){
   const t = $('sumTable'); t.replaceChildren();
   const thead = el('thead'), hr = el('tr');
-  [['항목', ''], ['Rolling', 'n'], ['現 실적', 'n'], ['진척율', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  [['팀', ''], ['채널', ''], ['항목', ''], ['Rolling', 'n'], ['現 실적', 'n'], ['진척율', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
   thead.append(hr);
-  const tb = el('tbody');
-  for (const d of summaryData(rows)){
+  const tb = el('tbody'), data = summaryData(rows);
+  for (const [i, d] of data.entries()){
     const tr = el('tr', null, d.amt ? 'amt' : '');
+    if (i === 0) scopeCells(tr, data.scope, data.length);
     tr.append(el('td', d.lab, 'lab'),
       el('td', d.amt ? fmtAmt(d.r) : fmtPct(d.r), 'n' + (d.r < 0 ? ' neg' : '')),
       el('td', d.amt ? fmtAmt(d.a) : fmtPct(d.a), 'n' + (d.a < 0 ? ' neg' : '')),
@@ -298,14 +313,14 @@ function renderSummary(rows){
 // ---------- 결과뷰 2 ----------
 const DET_ROWS = [['총매출', 'sales', true], ['비용%', 'cost'], ['DC%', 'dc'], ['장려금%', 'inc'], ['판관비%', 'sga'], ['원가%', 'cogs'], ['운송비%', 'ship'], ['공헌이익', 'cm', true], ['공헌이익%', 'cm']];
 function detailData(rows){
-  const ch = $('dCh').value, ma = $('dMajor').value, mi = $('dMinor').value;
-  const f = rows.filter(r => (!ch || r.ch === ch) && (!ma || r.major === ma) && (!mi || r.minor === mi));
+  const sc = scoped(rows, 'dTeam', 'dCh'), ch = sc.ch, ma = $('dMajor').value, mi = $('dMinor').value;
+  const f = sc.f.filter(r => (!ma || r.major === ma) && (!mi || r.minor === mi));
   const by = ma ? 'minor' : 'major';
   const names = [...new Set(f.map(r => r[by]))].sort(ko);
   const groups = names.map(n => ({name: n, s: sum(f.filter(r => r[by] === n))}));
   if (groups.length > 1) groups.unshift({name: '합계', total: true, s: sum(f)});
   const chTot = ch ? sum(rows.filter(r => r.ch === ch)) : null;
-  return {by, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
+  return {by, scope: sc, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
     if (amt){
       const share = k === 'sales' && chTot ? [chTot.R.sales ? g.s.R.sales / chTot.R.sales : null, chTot.A.sales ? g.s.A.sales / chTot.A.sales : null] : null;
       return {lab, amt: true, r: g.s.R[k], a: g.s.A[k], share, gap: g.s.A[k] - g.s.R[k]};
@@ -318,14 +333,14 @@ function renderDetail(rows){
   const t = $('detTable'); t.replaceChildren();
   const d = detailData(rows);
   const thead = el('thead'), hr = el('tr');
-  [[d.by === 'major' ? '대카테고리' : '소카테고리', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  [['팀', ''], ['채널', ''], [d.by === 'major' ? '대카테고리' : '소카테고리', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
   thead.append(hr);
   const tb = el('tbody');
-  if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 7; tr.append(td); tb.append(tr); }
+  if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 9; tr.append(td); tb.append(tr); }
   for (const g of d.groups){
     g.lines.forEach((ln, i) => {
       const tr = el('tr', null, [i === 0 ? 'gstart' : '', g.total ? 'total' : '', ln.amt ? 'amt' : ''].filter(Boolean).join(' '));
-      if (i === 0){ const td = el('td', g.name, 'grp'); td.rowSpan = g.lines.length; tr.append(td); }
+      if (i === 0){ scopeCells(tr, d.scope, g.lines.length); const td = el('td', g.name, 'grp'); td.rowSpan = g.lines.length; tr.append(td); }
       const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
       tr.append(el('td', ln.lab, 'lab'),
         el('td', f(ln.r), 'n' + (ln.r < 0 ? ' neg' : '')),
@@ -348,10 +363,13 @@ function fillSelect(sel, values, label){
   sel.value = values.includes(cur) ? cur : '';
 }
 function refreshFilters(rows){
-  const chs = channels(rows);
-  fillSelect($('sCh'), chs, '채널');
-  fillSelect($('dCh'), chs, '채널');
-  const ch = $('dCh').value, r1 = rows.filter(r => !ch || r.ch === ch);
+  const tms = teams(rows);
+  for (const [tSel, cSel] of [['sTeam', 'sCh'], ['dTeam', 'dCh']]){
+    fillSelect($(tSel), tms, '팀');
+    const t = $(tSel).value;
+    fillSelect($(cSel), channels(rows.filter(r => !t || r.team === t)), '채널');
+  }
+  const r1 = scoped(rows, 'dTeam', 'dCh').f;
   fillSelect($('dMajor'), [...new Set(r1.map(r => r.major))].sort(ko), '대카테고리');
   const ma = $('dMajor').value;
   fillSelect($('dMinor'), [...new Set(r1.filter(r => !ma || r.major === ma).map(r => r.minor))].sort(ko), '소카테고리');
@@ -430,20 +448,20 @@ async function load(getSheets, name){
 function exportXlsx(){
   if (!st.data) return;
   const {rows} = monthRows();
-  const sumCh = $('sCh').value || '전체', s = summaryData(rows);
-  const a1 = [[`${st.month} 요약 · 채널: ${sumCh}`], ['항목', 'Rolling', '現 실적', '진척율'], ...s.map(d => [d.lab, fin(d.r) ? d.r : null, fin(d.a) ? d.a : null, d.amt && fin(d.prog) ? d.prog : null])];
+  const s = summaryData(rows), ss = s.scope;
+  const a1 = [[`${st.month} 요약`], ['팀', '채널', '항목', 'Rolling', '現 실적', '진척율'], ...s.map(d => [ss.teamLab, ss.chLab, d.lab, fin(d.r) ? d.r : null, fin(d.a) ? d.a : null, d.amt && fin(d.prog) ? d.prog : null])];
   const ws1 = XLSX.utils.aoa_to_sheet(a1);
-  s.forEach((d, i) => { const R = i + 2; [1, 2].forEach(C => { const c = ws1[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = d.amt ? '#,##0' : '0.0%'; }); const c = ws1[XLSX.utils.encode_cell({r: R, c: 3})]; if (c) c.z = '0.0%'; });
-  const d = detailData(rows);
-  const filt = [$('dCh').value || '전체 채널', $('dMajor').value || '전체 대카테고리', $('dMinor').value || '전체 소카테고리'].join(' · ');
-  const a2 = [[`${st.month} 상세 · ${filt}`], [d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
+  s.forEach((d, i) => { const R = i + 2; [3, 4].forEach(C => { const c = ws1[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = d.amt ? '#,##0' : '0.0%'; }); const c = ws1[XLSX.utils.encode_cell({r: R, c: 5})]; if (c) c.z = '0.0%'; });
+  const d = detailData(rows), ds = d.scope;
+  const filt = [$('dMajor').value || '전체 대카테고리', $('dMinor').value || '전체 소카테고리'].join(' · ');
+  const a2 = [[`${st.month} 상세 · ${filt}`], ['팀', '채널', d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
   const fmts = [];
   for (const g of d.groups) for (const ln of g.lines){
-    a2.push([g.name, ln.lab, fin(ln.r) ? ln.r : null, fin(ln.a) ? ln.a : null, ln.share && fin(ln.share[0]) ? ln.share[0] : null, ln.share && fin(ln.share[1]) ? ln.share[1] : null, fin(ln.gap) ? ln.gap : null]);
+    a2.push([ds.teamLab, ds.chLab, g.name, ln.lab, fin(ln.r) ? ln.r : null, fin(ln.a) ? ln.a : null, ln.share && fin(ln.share[0]) ? ln.share[0] : null, ln.share && fin(ln.share[1]) ? ln.share[1] : null, fin(ln.gap) ? ln.gap : null]);
     fmts.push(ln.amt);
   }
   const ws2 = XLSX.utils.aoa_to_sheet(a2);
-  fmts.forEach((amt, i) => { const R = i + 2; for (let C = 2; C <= 6; C++){ const c = ws2[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = (C === 4 || C === 5) ? '0.0%' : amt ? '#,##0' : '0.0%'; } });
+  fmts.forEach((amt, i) => { const R = i + 2; for (let C = 4; C <= 8; C++){ const c = ws2[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = (C === 6 || C === 7) ? '0.0%' : amt ? '#,##0' : '0.0%'; } });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws1, '요약');
   XLSX.utils.book_append_sheet(wb, ws2, '상세');
@@ -470,7 +488,7 @@ window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => e.preventDefault());
 $('clearData').onclick = async () => { if (!confirm('저장된 자료를 지울까요?')) return; await dbClear(); st.data = null; showInfo(); $('loadMsg').replaceChildren(); render(); };
 $('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
-['sCh', 'dCh', 'dMajor', 'dMinor'].forEach(id => { $(id).onchange = () => render(false); });
+['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor'].forEach(id => { $(id).onchange = () => render(false); });
 $('save').onclick = () => exportXlsx();
 (async () => { const d = await dbGet(); if (d && Array.isArray(d.items)){ st.data = d; showInfo(); render(); } })();
 </script>
