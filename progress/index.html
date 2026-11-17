@@ -683,7 +683,7 @@ function parsePromo(sheets){
   return {items, warnings};
 }
 const pChannels = () => [...new Set(st.promo.items.map(i => i.ch))].sort(ko);
-// 프로모션 LV3명 ↔ 진척 RAW 경로세부1 (예: 롯데마트 ↔ C2.롯데마트)
+// 프로모션 LV3명 ↔ 진척 RAW 경로세부1 (예: 마트A ↔ C2.마트A)
 function matchCh(lv3){
   if (!st.data) return null;
   const chs = [...new Set(st.data.items.map(i => i.ch))], n = norm(lv3);
