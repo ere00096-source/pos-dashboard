@@ -335,22 +335,26 @@ async function dbClear(){ try { const db = await idb(); await new Promise(res =>
 // ---------- 화면 ----------
 const st = {data: null, unit: 'minor', sevFilter: '', sortKey: null, sortDir: -1, selected: null, charts: {}, rows: []};
 const SEV = {1: ['s1', '🔴 최우선 점검'], 2: ['s2', '🟠 점검'], 3: ['s3', '🟡 추세 점검'], 0: ['ok', '정상']};
+// 계획연도 총매출이 0인 항목 = 운영 안 함 → 점검에서 제외
+const planTotal = it => (it.plan.sales || []).reduce((a, v) => a + (v || 0), 0);
+const activeItems = () => st.data.items.filter(it => planTotal(it) !== 0);
 function groupRows(){
   const d = st.data, q = norm($('fQ').value), fc = $('fCh').value, fm = $('fMajor').value;
-  const items = d.items.filter(it => (!fc || it.ch === fc) && (!fm || it.major === fm) && (!q || norm([it.ch, it.major, it.minor].join(' ')).includes(q)));
+  const items = activeItems().filter(it => (!fc || it.ch === fc) && (!fm || it.major === fm) && (!q || norm([it.ch, it.major, it.minor].join(' ')).includes(q)));
   const keyOf = it => st.unit === 'ch' ? it.ch : st.unit === 'major' ? it.ch + '|' + it.major : it.ch + '|' + it.major + '|' + it.minor;
   const groups = new Map();
   for (const it of items){ const k = keyOf(it); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
   return [...groups].map(([k, list]) => {
     const agg = aggregate(list), ev = evaluate(agg), f = list[0];
-    return {key: k, ch: f.ch, major: st.unit === 'ch' ? '' : f.major, minor: st.unit === 'minor' ? f.minor : '', count: list.length, agg, ev};
+    const many = (vals, name) => { const u = [...new Set(vals)]; return u.length === 1 ? u[0] : `(${name} ${u.length}개)`; };
+    return {key: k, ch: f.ch, major: st.unit === 'ch' ? many(list.map(x => x.major), '대분류') : f.major, minor: st.unit === 'minor' ? f.minor : many(list.map(x => x.minor), '소분류'), count: list.length, agg, ev};
   });
 }
 const COLS = [
   {k: 'sev', h: '판정', v: r => r.ev.sev === 0 ? 9 : r.ev.sev, cell: r => badges(r)},
   {k: 'ch', h: '채널', v: r => r.ch},
-  {k: 'major', h: '대분류', v: r => r.major, only: ['minor', 'major']},
-  {k: 'minor', h: '소분류', v: r => r.minor, only: ['minor']},
+  {k: 'major', h: '대분류', v: r => r.major},
+  {k: 'minor', h: '소분류', v: r => r.minor},
   {k: 'sb', h: 'B 총매출', v: r => r.agg.base.total, n: 1, f: fmtNum},
   {k: 'sp', h: 'P 총매출', v: r => r.agg.plan.total, n: 1, f: fmtNum},
   {k: 'g', h: '매출 증가율', v: r => r.ev.g, n: 1, f: fmtSigned, cls: v => v == null ? '' : v < 0 ? 'down' : ''},
@@ -387,7 +391,7 @@ function render(){
   const all = groupRows();
   st.rows = all;
   // 요약 타일
-  const totAgg = aggregate(d.items.filter(it => (!$('fCh').value || it.ch === $('fCh').value) && (!$('fMajor').value || it.major === $('fMajor').value)));
+  const totAgg = aggregate(activeItems().filter(it => (!$('fCh').value || it.ch === $('fCh').value) && (!$('fMajor').value || it.major === $('fMajor').value)));
   const tot = evaluate(totAgg);
   const cnt = k => all.filter(r => r.ev['sev' + k]).length;
   const tiles = $('tiles'); tiles.replaceChildren();
@@ -419,7 +423,8 @@ function render(){
   };
   rows.sort(cmp);
   st.view = rows;
-  $('listInfo').textContent = `${rows.length.toLocaleString()}개 표시 (전체 ${all.length.toLocaleString()}개 ${unitName}) · 행을 누르면 아래에 월별 그래프가 나와요 · 제목을 누르면 정렬`;
+  const off = d.items.filter(it => planTotal(it) === 0);
+  $('listInfo').textContent = `${rows.length.toLocaleString()}개 표시 (전체 ${all.length.toLocaleString()}개 ${unitName})${off.length ? ` · ${d.planLabel} 총매출 0원(운영 안 함) ${off.length}개 소분류 제외` : ''} · 행을 누르면 아래에 월별 그래프가 나와요 · 제목을 누르면 정렬`;
   const t = $('list'); t.replaceChildren();
   const hr = el('tr');
   cols.forEach(c => {
