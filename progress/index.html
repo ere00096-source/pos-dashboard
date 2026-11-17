@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>롤링 진척 점검</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2433;--sub:#667085;--muted:#98a2b3;--line:#e2e5ea;--pri:#1f5fbf;--pri-soft:#e8f0fb;--err:#b42318;--err-soft:#fdecea;--warn:#93600a;--warn-soft:#fdf3dc;--ok:#18794e;--ok-soft:#e3f5ec}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:0 24px;display:flex;align-items:center;gap:16px;height:56px}
+header h1{font-size:17px;margin:0}
+header a{color:var(--sub);font-size:13px;text-decoration:none;margin-left:auto}
+main{max-width:1320px;margin:0 auto;padding:20px 24px 60px}
+.notice{color:var(--sub);font-size:13px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px;min-width:0}
+.card h2{font-size:15px;margin:0 0 12px}
+.need{color:var(--sub);font-size:13px;margin:0 0 14px}
+.inputs{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.zone{border:2px dashed #c3c9d3;border-radius:8px;padding:20px 16px;text-align:center;color:var(--sub);cursor:pointer;min-height:96px;display:flex;flex-direction:column;justify-content:center;outline:0}
+.zone:focus,.zone.over{border-color:var(--pri);background:var(--pri-soft);color:var(--pri)}
+.zone b{color:var(--ink);font-size:15px}
+.zone:focus b,.zone.over b{color:var(--pri)}
+button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer}
+.msg{border-radius:6px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.msg.err{background:var(--err-soft);color:var(--err)}
+.msg.warn{background:var(--warn-soft);color:var(--warn)}
+.msg.ok{background:var(--ok-soft);color:var(--ok)}
+.msg ul{margin:4px 0 0;padding-left:18px}
+.hide{display:none!important}
+.sub{color:var(--sub);font-size:13px}
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+.filters label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--sub)}
+.filters select{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:13px;color:var(--ink);background:#fff;min-width:140px}
+.days{display:flex;flex-wrap:wrap;gap:8px}
+.day{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;background:#fafbfc}
+.day b{font-size:13px}
+.day input{width:52px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;font:inherit;font-size:13px;text-align:right}
+.day em{font-style:normal;color:var(--pri);font-weight:700;min-width:64px;text-align:right}
+.tbl{overflow:auto;border:1px solid var(--line);border-radius:6px;max-height:720px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}
+th{background:#f6f7f9;position:sticky;top:0;font-weight:700;z-index:1}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td.grp{font-weight:700;vertical-align:top;background:#fff;border-right:1px solid var(--line)}
+tr.gstart td{border-top:2px solid #cfd4dc}
+tr.total td{background:#f8fafc}
+tr.total td.grp{background:#f1f4f8}
+td.lab{color:var(--sub)}
+tr.amt td.lab{color:var(--ink);font-weight:700}
+.neg{color:var(--err)}
+.summary{max-width:720px}
+.actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+@media(max-width:900px){.inputs{grid-template-columns:1fr}main{padding:16px 16px 48px}header{padding:0 16px}}
+</style>
+</head>
+<body>
+<header><h1>롤링 진척 점검</h1><a href="../">← POS 데이터 관리</a></header>
+<main>
+  <p class="notice">자료는 지금 쓰는 브라우저 안에만 저장되고 어디로도 전송되지 않아요.</p>
+
+  <div class="card">
+    <h2>자료 넣기</h2>
+    <p class="need">구분(Rolling / Rolling(변형) / 실적·예측) · 월 · 경로구분 · 팀구분 · 경로세부1(채널) · 대카테고리 · 소카테고리 · 총매출 · DC · 장려금 · 판관비 · 비용 · 변동원가 · 운송비 · 공헌이익 열이 있는 RAW예요. 다시 넣으면 통째로 바뀌어요.</p>
+    <div class="inputs">
+      <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 제목 행까지 복사해 붙여넣기</span></div>
+      <div class="zone" id="drop"><b>엑셀 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
+    </div>
+    <input type="file" id="file" class="hide" accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv">
+    <p id="busy" class="sub hide" style="margin-top:12px">읽는 중이에요...</p>
+    <div id="loadMsg"></div>
+    <div class="actions" style="margin-top:10px"><span class="sub" id="dataInfo">아직 자료가 없어요.</span><button class="sec hide" id="clearData">자료 지우기</button></div>
+  </div>
+
+  <div id="board" class="hide">
+    <div class="card">
+      <h2>채널별 기준일 · 기대진척율</h2>
+      <div class="filters hide" id="monthBox"><label>월<select id="fMonth"></select></label></div>
+      <div class="days" id="days"></div>
+      <p class="sub" style="margin:10px 0 0">실적이 며칠까지 들어왔는지 채널마다 입력해 주세요. 기대진척율 = 기준일 ÷ 그 달 일수 (참고용, 입력값은 이 브라우저에 저장돼요).</p>
+      <p class="sub" id="rollNote" style="margin:4px 0 0"></p>
+    </div>
+
+    <div class="card">
+      <h2>결과뷰 1 · 요약</h2>
+      <div class="filters"><label>채널<select id="sCh"></select></label></div>
+      <div class="tbl summary"><table id="sumTable"></table></div>
+      <p class="sub" style="margin:8px 0 0">진척율 = 現 실적 ÷ Rolling. 비용율 = 비용 ÷ 총매출, 원가율 = 변동원가 ÷ 총매출, 공헌이익율 = 공헌이익 ÷ 총매출.</p>
+    </div>
+
+    <div class="card">
+      <h2>결과뷰 2 · 상세</h2>
+      <div class="filters">
+        <label>채널<select id="dCh"></select></label>
+        <label>대카테고리<select id="dMajor"></select></label>
+        <label>소카테고리<select id="dMinor"></select></label>
+        <button class="sec" id="save">엑셀로 저장</button>
+      </div>
+      <div class="tbl"><table id="detTable"></table></div>
+      <p class="sub" style="margin:8px 0 0">예측 = 실적 값이에요. gap = 예측 − Rolling (금액은 원, 비율은 %p). 매출비중 = 해당 카테고리 총매출 ÷ 채널 전체 총매출 (채널을 하나 골랐을 때만 보여요).</p>
+    </div>
+  </div>
+</main>
+<script src="../xlsx.full.min.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const text = v => v == null ? '' : String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+const norm = v => text(v).replace(/\s+/g, '').toLowerCase();
+class UserError extends Error {}
+function el(tag, content, cls){ const e = document.createElement(tag); if (content != null) e.textContent = content; if (cls) e.className = cls; return e; }
+const fin = v => v != null && isFinite(v);
+const fmtAmt = v => fin(v) ? Math.round(v).toLocaleString('ko-KR') : '–';
+const fmtSAmt = v => fin(v) ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString('ko-KR') : '–';
+const fmtPct = v => fin(v) ? (v * 100).toFixed(1) + '%' : '–';
+const fmtPp = v => fin(v) ? (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%p' : '–';
+const ko = (a, b) => a.localeCompare(b, 'ko', {numeric: true});
+
+// ---------- 입력 읽기 ----------
+function parseDelimited(raw, delimiter){
+  const rows = []; let row = [], cell = '', quoted = false, started = false;
+  for (let i = 0; i < raw.length; i++){
+    const ch = raw[i];
+    if (quoted){ if (ch === '"'){ if (raw[i + 1] === '"'){ cell += '"'; i++; } else quoted = false; } else cell += ch; continue; }
+    if (ch === '"' && cell === ''){ quoted = true; started = true; }
+    else if (ch === delimiter){ row.push(cell); cell = ''; started = true; }
+    else if (ch === '\n' || ch === '\r'){ if (ch === '\r' && raw[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; started = false; }
+    else { cell += ch; started = true; }
+  }
+  if (started || cell){ row.push(cell); rows.push(row); }
+  return rows;
+}
+function decodeBytes(buf){
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(buf).replace(/^﻿/, ''); }
+  catch { return new TextDecoder('euc-kr').decode(buf); }
+}
+const DRM_HINT = '파일을 열지 못했어요. 암호나 보안(DRM)이 걸린 파일일 수 있어요. 엑셀에서 열어 복사한 뒤 붙여넣기로 넣어 주세요.';
+async function fileSheets(file){
+  const lower = file.name.toLowerCase(), buf = await file.arrayBuffer();
+  if (/\.(csv|txt|tsv)$/.test(lower)){
+    const raw = decodeBytes(buf);
+    return [{name: file.name, rows: parseDelimited(raw, raw.split('\n', 1)[0].includes('\t') ? '\t' : ',')}];
+  }
+  if (!/\.(xlsx|xlsm|xls)$/.test(lower)) throw new UserError('xlsx, xls, csv 파일만 넣을 수 있어요.');
+  const head = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
+  if (/\.(xlsx|xlsm)$/.test(lower) && !(head[0] === 0x50 && head[1] === 0x4b)) throw new UserError(DRM_HINT);
+  let wb;
+  try { wb = XLSX.read(new Uint8Array(buf), {type: 'array', dense: true}); } catch { throw new UserError(DRM_HINT); }
+  return wb.SheetNames.filter(n => wb.Sheets[n] && wb.Sheets[n]['!ref']).map(n => ({name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: null, blankrows: false})}));
+}
+
+// ---------- 양식 해석 ----------
+const MEAS = ['sales', 'dc', 'inc', 'sga', 'cost', 'cogs', 'ship', 'cm'];
+const LABEL = {sales: '총매출', dc: 'DC', inc: '장려금', sga: '판관비', cost: '비용', cogs: '변동원가', ship: '운송비', cm: '공헌이익'};
+const HEAD = {'구분': 'kind', '월': 'month', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor',
+  '총매출': 'sales', 'dc': 'dc', '장려금': 'inc', '판관비': 'sga', '비용': 'cost', '변동원가': 'cogs', '운송비': 'ship', '공헌이익': 'cm'};
+function headerMap(row){
+  const m = {};
+  (row || []).forEach((v, i) => { const k = HEAD[norm(v)]; if (k && m[k] == null) m[k] = i; });
+  return m;
+}
+function kindOfRow(v){
+  const n = norm(v);
+  if (!n) return null;
+  if (n.includes('변형')) return 'alt';
+  if (n.includes('rolling') || n.includes('롤링')) return 'roll';
+  if (n.includes('예측') || n.includes('실적')) return 'act';
+  return null;
+}
+function numVal(v){
+  if (typeof v === 'number') return v;
+  let s = text(v).replace(/[,₩\s원]/g, '');
+  if (s === '' || s === '-') return null;
+  if (/^\(.*\)$/.test(s)) s = '-' + s.slice(1, -1);
+  const n = Number(s);
+  return isFinite(n) ? n : NaN;
+}
+function monthLabel(v){
+  const s = text(v);
+  if (!s) return '-';
+  const m = s.match(/^(\d{1,2})(월)?$/);
+  return m ? Number(m[1]) + '월' : s;
+}
+const zero = () => Object.fromEntries(MEAS.map(k => [k, 0]));
+function parseRaw(sheets){
+  const warnings = [], items = new Map(), unknown = new Map();
+  let found = false, rowsRead = 0, badNum = 0;
+  for (const sh of sheets){
+    const rows = sh.rows; let hi = -1, map = null;
+    for (let i = 0; i < Math.min(rows.length, 40); i++){
+      const m = headerMap(rows[i]);
+      if (m.kind != null && m.sales != null && m.ch != null){ hi = i; map = m; break; }
+    }
+    if (hi < 0) continue;
+    found = true;
+    const missing = MEAS.filter(k => map[k] == null);
+    if (missing.length) warnings.push(`${sh.name}: ${missing.map(k => LABEL[k]).join(', ')} 열이 없어서 0으로 봤어요.`);
+    if (map.major == null) warnings.push(`${sh.name}: 대카테고리 열이 없어요.`);
+    for (let i = hi + 1; i < rows.length; i++){
+      const r = rows[i];
+      if (!r || r.every(v => text(v) === '')) continue;
+      const kt = text(r[map.kind]), kind = kindOfRow(kt);
+      if (!kind){ if (kt && !/합계|총계/.test(kt)) unknown.set(kt, (unknown.get(kt) || 0) + 1); continue; }
+      const g = k => map[k] == null ? '' : text(r[map[k]]);
+      const it = {m: monthLabel(map.month == null ? '' : r[map.month]), route: g('route'), team: g('team'), ch: g('ch') || '(채널 없음)', major: g('major') || '(대카테고리 없음)', minor: g('minor') || '(소카테고리 없음)'};
+      const key = [it.m, it.route, it.team, it.ch, it.major, it.minor].join('\u0001');
+      let cur = items.get(key);
+      if (!cur){ cur = {...it, roll: null, alt: null, act: null}; items.set(key, cur); }
+      const o = cur[kind] || (cur[kind] = zero());
+      for (const k of MEAS){
+        if (map[k] == null) continue;
+        const v = numVal(r[map[k]]);
+        if (v == null) continue;
+        if (isNaN(v)){ badNum++; continue; }
+        o[k] += v;
+      }
+      rowsRead++;
+    }
+  }
+  if (!found) throw new UserError('양식을 찾지 못했어요. 구분 · 경로세부1 · 총매출 열이 있는 제목 행까지 함께 넣어 주세요.');
+  if (!rowsRead) throw new UserError('구분이 Rolling / Rolling(변형) / 실적(예측)인 행이 없어요.');
+  if (unknown.size) warnings.push(`구분을 알 수 없어 뺀 행: ${[...unknown].map(([k, n]) => `${k} ${n}행`).join(', ')}`);
+  if (badNum) warnings.push(`숫자로 읽지 못한 칸 ${badNum.toLocaleString()}개는 0으로 봤어요.`);
+  return {items: [...items.values()], rowsRead, warnings};
+}
+
+// ---------- 계산 ----------
+const st = {data: null, month: null};
+function monthsOf(d){ return [...new Set(d.items.map(i => i.m))].sort((a, b) => (parseInt(a) || 99) - (parseInt(b) || 99) || ko(a, b)); }
+// 그 달 자료: 채널에 Rolling(변형)이 있으면 그 채널은 변형 값을 Rolling으로 사용
+function monthRows(){
+  const list = st.data.items.filter(i => i.m === st.month);
+  const altCh = new Set(list.filter(i => i.alt).map(i => i.ch));
+  const Z = zero();
+  return {altCh, rows: list.map(i => ({ch: i.ch, major: i.major, minor: i.minor, R: (altCh.has(i.ch) ? i.alt : i.roll) || Z, A: i.act || Z}))};
+}
+function sum(rows){
+  const R = zero(), A = zero();
+  for (const r of rows) for (const k of MEAS){ R[k] += r.R[k]; A[k] += r.A[k]; }
+  return {R, A};
+}
+const rate = (o, k) => o.sales ? o[k] / o.sales : null;
+const channels = rows => [...new Set(rows.map(r => r.ch))].sort(ko);
+
+// ---------- 기준일 ----------
+const DAY_KEY = 'progress-base-day-v1';
+function loadDays(){ try { return JSON.parse(localStorage.getItem(DAY_KEY) || '{}') || {}; } catch { return {}; } }
+function saveDay(k, v){ try { const d = loadDays(); if (v) d[k] = v; else delete d[k]; localStorage.setItem(DAY_KEY, JSON.stringify(d)); } catch {} }
+function daysInMonth(m){
+  const n = parseInt(m);
+  if (!(n >= 1 && n <= 12)) return 30;
+  return new Date(new Date().getFullYear(), n, 0).getDate();
+}
+function renderDays(rows, altCh){
+  const box = $('days'); box.replaceChildren();
+  const saved = loadDays(), dim = daysInMonth(st.month), mNum = parseInt(st.month);
+  for (const ch of channels(rows)){
+    const key = st.month + '|' + ch;
+    const lab = el('label', null, 'day'), inp = el('input'), exp = el('em');
+    inp.type = 'number'; inp.min = 1; inp.max = dim; inp.placeholder = '일';
+    inp.value = saved[key] || '';
+    const upd = () => { const v = parseInt(inp.value); exp.textContent = v >= 1 && v <= dim ? '기대 ' + fmtPct(v / dim) : '기대 –'; };
+    inp.oninput = () => { const v = parseInt(inp.value); saveDay(key, v >= 1 && v <= dim ? v : null); upd(); };
+    upd();
+    lab.append(el('b', ch), el('span', (mNum ? mNum + '/' : '')), inp, el('span', '일까지'), exp);
+    box.append(lab);
+  }
+  const alts = [...altCh].sort(ko);
+  $('rollNote').textContent = alts.length ? `Rolling(변형) 사용 채널: ${alts.join(', ')} — 이 채널은 일반 Rolling 대신 Rolling(변형) 값을 Rolling으로 봐요.` : '';
+}
+
+// ---------- 결과뷰 1 ----------
+const SUM_ROWS = [['총매출', 'sales', true], ['비용율', 'cost', false], ['원가율', 'cogs', false], ['공헌이익', 'cm', true], ['공헌이익율', 'cm', false]];
+function summaryData(rows){
+  const ch = $('sCh').value, s = sum(ch ? rows.filter(r => r.ch === ch) : rows);
+  return SUM_ROWS.map(([lab, k, amt]) => amt
+    ? {lab, amt, r: s.R[k], a: s.A[k], prog: s.R[k] ? s.A[k] / s.R[k] : null}
+    : {lab, amt, r: rate(s.R, k), a: rate(s.A, k), prog: null});
+}
+function renderSummary(rows){
+  const t = $('sumTable'); t.replaceChildren();
+  const thead = el('thead'), hr = el('tr');
+  [['항목', ''], ['Rolling', 'n'], ['現 실적', 'n'], ['진척율', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  thead.append(hr);
+  const tb = el('tbody');
+  for (const d of summaryData(rows)){
+    const tr = el('tr', null, d.amt ? 'amt' : '');
+    tr.append(el('td', d.lab, 'lab'),
+      el('td', d.amt ? fmtAmt(d.r) : fmtPct(d.r), 'n' + (d.r < 0 ? ' neg' : '')),
+      el('td', d.amt ? fmtAmt(d.a) : fmtPct(d.a), 'n' + (d.a < 0 ? ' neg' : '')),
+      el('td', d.amt ? fmtPct(d.prog) : '', 'n'));
+    tb.append(tr);
+  }
+  t.append(thead, tb);
+}
+
+// ---------- 결과뷰 2 ----------
+const DET_ROWS = [['총매출', 'sales', true], ['비용%', 'cost'], ['DC%', 'dc'], ['장려금%', 'inc'], ['판관비%', 'sga'], ['원가%', 'cogs'], ['운송비%', 'ship'], ['공헌이익', 'cm', true], ['공헌이익%', 'cm']];
+function detailData(rows){
+  const ch = $('dCh').value, ma = $('dMajor').value, mi = $('dMinor').value;
+  const f = rows.filter(r => (!ch || r.ch === ch) && (!ma || r.major === ma) && (!mi || r.minor === mi));
+  const by = ma ? 'minor' : 'major';
+  const names = [...new Set(f.map(r => r[by]))].sort(ko);
+  const groups = names.map(n => ({name: n, s: sum(f.filter(r => r[by] === n))}));
+  if (groups.length > 1) groups.unshift({name: '합계', total: true, s: sum(f)});
+  const chTot = ch ? sum(rows.filter(r => r.ch === ch)) : null;
+  return {by, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
+    if (amt){
+      const share = k === 'sales' && chTot ? [chTot.R.sales ? g.s.R.sales / chTot.R.sales : null, chTot.A.sales ? g.s.A.sales / chTot.A.sales : null] : null;
+      return {lab, amt: true, r: g.s.R[k], a: g.s.A[k], share, gap: g.s.A[k] - g.s.R[k]};
+    }
+    const r = rate(g.s.R, k), a = rate(g.s.A, k);
+    return {lab, amt: false, r, a, share: null, gap: fin(r) && fin(a) ? a - r : null};
+  })}))};
+}
+function renderDetail(rows){
+  const t = $('detTable'); t.replaceChildren();
+  const d = detailData(rows);
+  const thead = el('thead'), hr = el('tr');
+  [[d.by === 'major' ? '대카테고리' : '소카테고리', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  thead.append(hr);
+  const tb = el('tbody');
+  if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 7; tr.append(td); tb.append(tr); }
+  for (const g of d.groups){
+    g.lines.forEach((ln, i) => {
+      const tr = el('tr', null, [i === 0 ? 'gstart' : '', g.total ? 'total' : '', ln.amt ? 'amt' : ''].filter(Boolean).join(' '));
+      if (i === 0){ const td = el('td', g.name, 'grp'); td.rowSpan = g.lines.length; tr.append(td); }
+      const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
+      tr.append(el('td', ln.lab, 'lab'),
+        el('td', f(ln.r), 'n' + (ln.r < 0 ? ' neg' : '')),
+        el('td', f(ln.a), 'n' + (ln.a < 0 ? ' neg' : '')),
+        el('td', ln.share ? fmtPct(ln.share[0]) : '', 'n'),
+        el('td', ln.share ? fmtPct(ln.share[1]) : '', 'n'),
+        el('td', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap), 'n'));
+      tb.append(tr);
+    });
+  }
+  t.append(thead, tb);
+}
+
+// ---------- 화면 ----------
+function fillSelect(sel, values, label){
+  const cur = sel.value;
+  sel.replaceChildren(el('option', `전체 ${label}`));
+  sel.options[0].value = '';
+  values.forEach(v => { const o = el('option', v); o.value = v; sel.append(o); });
+  sel.value = values.includes(cur) ? cur : '';
+}
+function refreshFilters(rows){
+  const chs = channels(rows);
+  fillSelect($('sCh'), chs, '채널');
+  fillSelect($('dCh'), chs, '채널');
+  const ch = $('dCh').value, r1 = rows.filter(r => !ch || r.ch === ch);
+  fillSelect($('dMajor'), [...new Set(r1.map(r => r.major))].sort(ko), '대카테고리');
+  const ma = $('dMajor').value;
+  fillSelect($('dMinor'), [...new Set(r1.filter(r => !ma || r.major === ma).map(r => r.minor))].sort(ko), '소카테고리');
+}
+function render(full){
+  $('board').classList.toggle('hide', !st.data);
+  if (!st.data) return;
+  const months = monthsOf(st.data);
+  if (!months.includes(st.month)) st.month = months[months.length - 1];
+  const fm = $('fMonth');
+  fm.replaceChildren(...months.map(m => { const o = el('option', m); o.value = m; return o; }));
+  fm.value = st.month;
+  $('monthBox').classList.toggle('hide', months.length < 2);
+  const {rows, altCh} = monthRows();
+  refreshFilters(rows);
+  if (full !== false) renderDays(rows, altCh);
+  renderSummary(rows); renderDetail(rows);
+}
+function showInfo(){
+  const d = st.data;
+  $('dataInfo').textContent = d ? `저장된 자료: ${d.name} · ${d.rowsRead.toLocaleString()}행 · 채널 ${new Set(d.items.map(i => i.ch)).size}곳 · ${monthsOf(d).join(', ')} · ${new Date(d.savedAt).toLocaleString('ko-KR')}` : '아직 자료가 없어요.';
+  $('clearData').classList.toggle('hide', !d);
+}
+function showMsgs(warnings, errors, okText){
+  const box = $('loadMsg'); box.replaceChildren();
+  if (okText) box.append(el('p', okText, 'msg ok'));
+  for (const [list, cls, title] of [[errors, 'err', '확인이 필요해요'], [warnings, 'warn', '참고']]){
+    if (!list || !list.length) continue;
+    const m = el('div', title, 'msg ' + cls), ul = el('ul');
+    list.slice(0, 15).forEach(x => ul.append(el('li', x)));
+    if (list.length > 15) ul.append(el('li', `외 ${list.length - 15}건`));
+    m.append(ul); box.append(m);
+  }
+}
+function checkCoverage(d){
+  const out = [];
+  for (const m of monthsOf(d)){
+    const list = d.items.filter(i => i.m === m);
+    const altCh = new Set(list.filter(i => i.alt).map(i => i.ch));
+    for (const ch of [...new Set(list.map(i => i.ch))].sort(ko)){
+      const l = list.filter(i => i.ch === ch);
+      const hasR = l.some(i => altCh.has(ch) ? i.alt : i.roll), hasA = l.some(i => i.act);
+      if (!hasR) out.push(`${m} ${ch}: Rolling 행이 없어요.`);
+      if (!hasA) out.push(`${m} ${ch}: 실적(예측) 행이 없어요.`);
+    }
+  }
+  return out;
+}
+// IndexedDB
+function idb(){
+  return new Promise((res, rej) => {
+    const q = indexedDB.open('progress-check', 1);
+    q.onupgradeneeded = () => q.result.createObjectStore('data');
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+}
+async function dbPut(v){ try { const db = await idb(); await new Promise((res, rej) => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').put(v, 'current'); t.oncomplete = res; t.onerror = () => rej(t.error); }); return true; } catch { return false; } }
+async function dbGet(){ try { const db = await idb(); return await new Promise((res, rej) => { const q = db.transaction('data').objectStore('data').get('current'); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); } catch { return null; } }
+async function dbClear(){ try { const db = await idb(); await new Promise(res => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').delete('current'); t.oncomplete = res; t.onerror = res; }); } catch {} }
+
+async function load(getSheets, name){
+  $('busy').classList.remove('hide'); $('loadMsg').replaceChildren();
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const p = parseRaw(await getSheets());
+    st.data = {items: p.items, rowsRead: p.rowsRead, name, savedAt: Date.now()};
+    st.month = null;
+    const saved = await dbPut(st.data);
+    showMsgs([...p.warnings, ...checkCoverage(st.data)], [], `${p.rowsRead.toLocaleString()}행을 읽었어요.${saved ? '' : ' 이 브라우저에는 저장하지 못해서 새로고침하면 다시 넣어야 해요.'}`);
+    showInfo(); render();
+  } catch (e) {
+    if (!(e instanceof UserError)) console.error(e);
+    showMsgs([], [e instanceof UserError ? e.message : `읽지 못했어요: ${e.message}`]);
+  } finally { $('busy').classList.add('hide'); }
+}
+function exportXlsx(){
+  if (!st.data) return;
+  const {rows} = monthRows();
+  const sumCh = $('sCh').value || '전체', s = summaryData(rows);
+  const a1 = [[`${st.month} 요약 · 채널: ${sumCh}`], ['항목', 'Rolling', '現 실적', '진척율'], ...s.map(d => [d.lab, fin(d.r) ? d.r : null, fin(d.a) ? d.a : null, d.amt && fin(d.prog) ? d.prog : null])];
+  const ws1 = XLSX.utils.aoa_to_sheet(a1);
+  s.forEach((d, i) => { const R = i + 2; [1, 2].forEach(C => { const c = ws1[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = d.amt ? '#,##0' : '0.0%'; }); const c = ws1[XLSX.utils.encode_cell({r: R, c: 3})]; if (c) c.z = '0.0%'; });
+  const d = detailData(rows);
+  const filt = [$('dCh').value || '전체 채널', $('dMajor').value || '전체 대카테고리', $('dMinor').value || '전체 소카테고리'].join(' · ');
+  const a2 = [[`${st.month} 상세 · ${filt}`], [d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
+  const fmts = [];
+  for (const g of d.groups) for (const ln of g.lines){
+    a2.push([g.name, ln.lab, fin(ln.r) ? ln.r : null, fin(ln.a) ? ln.a : null, ln.share && fin(ln.share[0]) ? ln.share[0] : null, ln.share && fin(ln.share[1]) ? ln.share[1] : null, fin(ln.gap) ? ln.gap : null]);
+    fmts.push(ln.amt);
+  }
+  const ws2 = XLSX.utils.aoa_to_sheet(a2);
+  fmts.forEach((amt, i) => { const R = i + 2; for (let C = 2; C <= 6; C++){ const c = ws2[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = (C === 4 || C === 5) ? '0.0%' : amt ? '#,##0' : '0.0%'; } });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, '요약');
+  XLSX.utils.book_append_sheet(wb, ws2, '상세');
+  XLSX.writeFile(wb, `롤링진척점검_${st.month}.xlsx`);
+}
+
+// ---------- 이벤트 ----------
+$('paste').addEventListener('click', () => $('paste').focus());
+document.addEventListener('paste', e => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName)) return;
+  const raw = e.clipboardData.getData('text/plain');
+  if (!raw.trim()) return;
+  e.preventDefault();
+  load(async () => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}], '붙여넣기');
+});
+const drop = $('drop');
+const takeFile = f => { if (f) load(() => fileSheets(f), f.name); };
+drop.onclick = () => $('file').click();
+$('file').onchange = e => { takeFile(e.target.files[0]); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => takeFile(e.dataTransfer.files[0]));
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+$('clearData').onclick = async () => { if (!confirm('저장된 자료를 지울까요?')) return; await dbClear(); st.data = null; showInfo(); $('loadMsg').replaceChildren(); render(); };
+$('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
+['sCh', 'dCh', 'dMajor', 'dMinor'].forEach(id => { $(id).onchange = () => render(false); });
+$('save').onclick = () => exportXlsx();
+(async () => { const d = await dbGet(); if (d && Array.isArray(d.items)){ st.data = d; showInfo(); render(); } })();
+</script>
+</body>
+</html>
