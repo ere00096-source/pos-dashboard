@@ -96,14 +96,14 @@ tbody tr.sel td{background:var(--pri-soft)!important}
     <div class="card">
       <h2>2. 점검 요약 <span class="sub" id="yearInfo"></span></h2>
       <div class="tiles" id="tiles"></div>
-      <p class="sub" style="margin:10px 0 0">매출차감율 = 장려금% + DC+반품% (27년은 둘의 구분이 없어 합쳐서 봐요. 판관비는 배부 방식 변경으로 점검에서 제외, 참고로만 표시). 연간 비율은 월 매출 가중 평균이에요.</p>
+      <p class="sub" style="margin:10px 0 0">매출차감율 = 장려금% + DC+반품% (27년은 둘의 구분이 없어 합쳐서 봐요. 판관비는 배부 방식 변경으로 제외). 연간 비율은 월 매출 가중 평균이에요.</p>
     </div>
 
     <div class="card">
       <h2>3. 점검 목록</h2>
       <div class="filters">
         <label>보기 단위<span class="seg" id="unit"><button data-v="minor" class="on">소분류</button><button data-v="major">대분류</button><button data-v="ch">채널</button></span></label>
-        <label>판정<select id="fSev"><option value="">전체</option><option value="flag">점검 대상 전체</option><option value="1">🔴 최우선 점검</option><option value="2">🟠 점검</option><option value="3">🟡 추세 점검</option><option value="0">정상</option></select></label>
+        <label>판정<select id="fSev"><option value="">전체</option><option value="flag">점검 대상 전체</option><option value="1">🔴 매출차감율 증가 & 총매출 감소</option><option value="2">🟠 매출차감율 증가 대비 총매출 증가 과소</option><option value="3">🟡 추세 점검</option><option value="0">정상</option></select></label>
         <label>채널<select id="fCh"></select></label>
         <label>대분류<select id="fMajor"></select></label>
         <label>검색<input id="fQ" placeholder="채널·분류 이름"></label>
@@ -334,7 +334,7 @@ async function dbClear(){ try { const db = await idb(); await new Promise(res =>
 
 // ---------- 화면 ----------
 const st = {data: null, unit: 'minor', sevFilter: '', sortKey: null, sortDir: -1, selected: null, charts: {}, rows: []};
-const SEV = {1: ['s1', '🔴 최우선 점검'], 2: ['s2', '🟠 점검'], 3: ['s3', '🟡 추세 점검'], 0: ['ok', '정상']};
+const SEV = {1: ['s1', '🔴 매출차감율 증가 & 총매출 감소'], 2: ['s2', '🟠 매출차감율 증가 대비 총매출 증가 과소'], 3: ['s3', '🟡 추세 점검'], 0: ['ok', '정상']};
 // 계획연도 총매출이 0인 줄 = 운영 안 함 → 점검 목록에서만 뺀다 (합계·증가율에는 기준연도 매출 그대로 포함)
 function groupRows(){
   const d = st.data, q = norm($('fQ').value), fc = $('fCh').value, fm = $('fMajor').value;
@@ -362,8 +362,6 @@ const COLS = [
   {k: 'cp', h: 'P 매출차감율', v: r => r.agg.plan.chk, n: 1, f: fmtPct},
   {k: 'dpp', h: '매출차감율 변화', v: r => r.ev.dpp, n: 1, f: fmtPp, cls: v => v != null && v > EPS ? 'up' : ''},
   {k: 'rg', h: '매출차감율 증가율', v: r => r.ev.rg, n: 1, f: fmtSigned, cls: v => v != null && v > 0 ? 'up' : ''},
-  {k: 'sga', h: '(참고) 판관비% B→P', v: r => r.agg.plan.sga - r.agg.base.sga, n: 1, f: (v, r) => `${fmtPct(r.agg.base.sga)} → ${fmtPct(r.agg.plan.sga)}`},
-  {k: 'cost', h: '(참고) 비용% B→P', v: r => r.agg.plan.cost - r.agg.base.cost, n: 1, f: (v, r) => `${fmtPct(r.agg.base.cost)} → ${fmtPct(r.agg.plan.cost)}`},
 ];
 const headName = h => h.replace(/^B /, st.data.baseLabel + ' ').replace(/^P /, st.data.planLabel + ' ').replace(/ B→P$/, ` ${st.data.baseLabel}→${st.data.planLabel}`).replace(/^\(참고\) (.*) B→P$/, `(참고) $1 ${st.data.baseLabel}→${st.data.planLabel}`);
 function badges(r){
@@ -399,8 +397,8 @@ function render(){
     tiles.append(t);
   };
   const unitName = {minor: '소분류', major: '대분류', ch: '채널'}[st.unit];
-  tile('🔴 최우선 점검', cnt(1), '매출차감율↑ · 매출↓', '1');
-  tile('🟠 점검', cnt(2), '매출 증가율 < 매출차감율 증가율', '2');
+  tile('🔴 매출차감율 증가 & 총매출 감소', cnt(1), '기존 최우선 점검', '1');
+  tile('🟠 매출차감율 증가 대비 총매출 증가 과소', cnt(2), '매출 증가율 < 매출차감율 증가율', '2');
   tile('🟡 추세 점검', cnt(3), `${d.baseLabel} 상승 추세 대비 계획 부진`, '3');
   tile('점검 항목', all.length, `${unitName} 기준`, null);
   tile('총매출 증가율', fmtSigned(tot.g), `${fmtNum(totAgg.base.total)} → ${fmtNum(totAgg.plan.total)}`, null);
@@ -486,7 +484,7 @@ function renderDetail(r){
   addRow(`${d.baseLabel} 총매출`, b.S, b.total, fmtNum);
   addRow(`${d.planLabel} 총매출`, p.S, p.total, fmtNum);
   addRow('매출 증가율', p.S.map((v, i) => b.S[i] ? v / b.S[i] - 1 : null), r.ev.g, fmtSigned);
-  for (const [k, n] of [['chk', '매출차감율'], ['sga', '(참고) 판관비%'], ['cost', '(참고) 비용%']]){
+  for (const [k, n] of [['chk', '매출차감율']]){
     addRow(`${d.baseLabel} ${n}`, b.monthly[k], b[k], fmtPct);
     addRow(`${d.planLabel} ${n}`, p.monthly[k], p[k], fmtPct);
   }
@@ -540,7 +538,7 @@ function exportXlsx(){
   const d = st.data, cols = COLS.filter(c => !c.only || c.only.includes(st.unit));
   const head = ['판정', '사유', ...cols.slice(1).flatMap(c => c.f && c.f.length > 1 ? [0, 1].map(j => { const nm = c.h.replace(' B→P', ''), y = j ? d.planLabel : d.baseLabel; return nm.startsWith('(참고) ') ? '(참고) ' + y + ' ' + nm.slice(5) : y + ' ' + nm; }) : [headName(c.h)])];
   const rows = (st.view || []).map(r => {
-    const sevText = r.ev.na || [r.ev.sev1 && '최우선 점검', r.ev.sev2 && '점검', r.ev.sev3 && '추세 점검'].filter(Boolean).join(', ') || '정상';
+    const sevText = r.ev.na || [r.ev.sev1 && '매출차감율 증가 & 총매출 감소', r.ev.sev2 && '매출차감율 증가 대비 총매출 증가 과소', r.ev.sev3 && '추세 점검'].filter(Boolean).join(', ') || '정상';
     const out = [sevText, r.ev.reasons.join(' / ')];
     for (const c of cols.slice(1)){
       if (c.f && c.f.length > 1){ const k = c.k; out.push(r.agg.base[k] ?? null, r.agg.plan[k] ?? null); }
