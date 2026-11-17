@@ -99,7 +99,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
         <button class="sec" id="save">엑셀로 저장</button>
       </div>
       <div class="tbl"><table id="detTable"></table></div>
-      <p class="sub" style="margin:8px 0 0">예측 = 실적 값이에요. gap = 예측 − Rolling (금액은 원, 비율은 %p). 매출비중 = 해당 카테고리 총매출 ÷ 채널 전체 총매출 (채널을 하나 골랐을 때만 보여요).</p>
+      <p class="sub" style="margin:8px 0 0">예측 = 실적 값이에요. gap = 예측 − Rolling (금액은 원, 비율은 %p). 매출비중 = 해당 카테고리 총매출 ÷ 그 채널 전체 총매출.</p>
     </div>
   </div>
 </main>
@@ -115,7 +115,7 @@ const fin = v => v != null && isFinite(v);
 const fmtAmt = v => fin(v) ? Math.round(v).toLocaleString('ko-KR') : '–';
 const fmtSAmt = v => fin(v) ? (v > 0 ? '+' : '') + Math.round(v).toLocaleString('ko-KR') : '–';
 const fmtPct = v => fin(v) ? (v * 100).toFixed(1) + '%' : '–';
-const fmtPp = v => fin(v) ? (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%p' : '–';
+const fmtPp = v => { if (!fin(v)) return '–'; const s = (v * 100).toFixed(1); return s === '0.0' || s === '-0.0' ? '0.0%p' : (v > 0 ? '+' : '') + s + '%p'; };
 const ko = (a, b) => a.localeCompare(b, 'ko', {numeric: true});
 
 // ---------- 입력 읽기 ----------
@@ -244,15 +244,16 @@ function sum(rows){
 const rate = (o, k) => o.sales ? o[k] / o.sales : null;
 const channels = rows => [...new Set(rows.map(r => r.ch))].sort(ko);
 const teams = rows => [...new Set(rows.map(r => r.team))].sort(ko);
-// 팀·채널 필터 적용 + 표 맨 왼쪽에 넣을 팀/채널 이름
+const teamOf = (rows, ch) => teams(rows.filter(r => r.ch === ch)).join(', ');
+// 팀·채널 필터 적용
 function scoped(rows, teamSel, chSel){
   const team = $(teamSel).value, ch = $(chSel).value;
   const f = rows.filter(r => (!team || r.team === team) && (!ch || r.ch === ch));
-  const teamLab = ch ? teams(rows.filter(r => r.ch === ch)).join(', ') : (team || '전체');
-  return {f, ch, team, teamLab, chLab: ch || '전체'};
+  return {f, ch, team};
 }
-function scopeCells(tr, sc, span){
-  for (const v of [sc.teamLab, sc.chLab]){ const td = el('td', v, 'grp'); td.rowSpan = span; tr.append(td); }
+// 표 맨 왼쪽: 채널(경로세부1) · 팀구분
+function scopeCells(tr, chLab, teamLab, span){
+  for (const v of [chLab, teamLab]){ const td = el('td', v, 'grp'); td.rowSpan = span; tr.append(td); }
 }
 
 // ---------- 기준일 ----------
@@ -284,45 +285,53 @@ function renderDays(rows, altCh){
 
 // ---------- 결과뷰 1 ----------
 const SUM_ROWS = [['총매출', 'sales', true], ['비용율', 'cost', false], ['원가율', 'cogs', false], ['공헌이익', 'cm', true], ['공헌이익율', 'cm', false]];
-function summaryData(rows){
-  const sc = scoped(rows, 'sTeam', 'sCh'), s = sum(sc.f);
-  const out = SUM_ROWS.map(([lab, k, amt]) => amt
+function sumLines(s){
+  return SUM_ROWS.map(([lab, k, amt]) => amt
     ? {lab, amt, r: s.R[k], a: s.A[k], prog: s.R[k] ? s.A[k] / s.R[k] : null}
     : {lab, amt, r: rate(s.R, k), a: rate(s.A, k), prog: null});
-  out.scope = sc;
-  return out;
 }
+// 채널을 고르면 그 채널만, 전체면 '전체' 합계 + 채널마다 한 묶음
+function summaryBlocks(rows){
+  const sc = scoped(rows, 'sTeam', 'sCh'), chs = channels(sc.f), blocks = [];
+  if (!sc.ch && chs.length > 1) blocks.push({chLab: '전체', teamLab: sc.team || '전체', total: true, s: sum(sc.f)});
+  for (const ch of chs) blocks.push({chLab: ch, teamLab: teamOf(rows, ch), s: sum(sc.f.filter(r => r.ch === ch))});
+  return blocks.map(b => ({...b, lines: sumLines(b.s)}));
+}
+const summaryData = rows => { const b = summaryBlocks(rows)[0]; return b ? b.lines : sumLines(sum([])); };
 function renderSummary(rows){
   const t = $('sumTable'); t.replaceChildren();
   const thead = el('thead'), hr = el('tr');
-  [['팀', ''], ['채널', ''], ['항목', ''], ['Rolling', 'n'], ['現 실적', 'n'], ['진척율', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  [['경로세부1', ''], ['팀구분', ''], ['항목', ''], ['Rolling', 'n'], ['現 실적', 'n'], ['진척율', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
   thead.append(hr);
-  const tb = el('tbody'), data = summaryData(rows);
-  for (const [i, d] of data.entries()){
-    const tr = el('tr', null, d.amt ? 'amt' : '');
-    if (i === 0) scopeCells(tr, data.scope, data.length);
-    tr.append(el('td', d.lab, 'lab'),
-      el('td', d.amt ? fmtAmt(d.r) : fmtPct(d.r), 'n' + (d.r < 0 ? ' neg' : '')),
-      el('td', d.amt ? fmtAmt(d.a) : fmtPct(d.a), 'n' + (d.a < 0 ? ' neg' : '')),
-      el('td', d.amt ? fmtPct(d.prog) : '', 'n'));
-    tb.append(tr);
+  const tb = el('tbody');
+  for (const b of summaryBlocks(rows)){
+    b.lines.forEach((d, i) => {
+      const tr = el('tr', null, [i === 0 ? 'gstart' : '', b.total ? 'total' : '', d.amt ? 'amt' : ''].filter(Boolean).join(' '));
+      if (i === 0) scopeCells(tr, b.chLab, b.teamLab, b.lines.length);
+      tr.append(el('td', d.lab, 'lab'),
+        el('td', d.amt ? fmtAmt(d.r) : fmtPct(d.r), 'n' + (d.r < 0 ? ' neg' : '')),
+        el('td', d.amt ? fmtAmt(d.a) : fmtPct(d.a), 'n' + (d.a < 0 ? ' neg' : '')),
+        el('td', d.amt ? fmtPct(d.prog) : '', 'n'));
+      tb.append(tr);
+    });
   }
   t.append(thead, tb);
 }
 
 // ---------- 결과뷰 2 ----------
 const DET_ROWS = [['총매출', 'sales', true], ['비용%', 'cost'], ['DC%', 'dc'], ['장려금%', 'inc'], ['판관비%', 'sga'], ['원가%', 'cogs'], ['운송비%', 'ship'], ['공헌이익', 'cm', true], ['공헌이익%', 'cm']];
+// 채널마다 × 대카테고리(대카테고리를 고르면 소카테고리) 묶음. 매출비중 = 카테고리 매출 ÷ 그 채널 전체 매출
 function detailData(rows){
-  const sc = scoped(rows, 'dTeam', 'dCh'), ch = sc.ch, ma = $('dMajor').value, mi = $('dMinor').value;
+  const sc = scoped(rows, 'dTeam', 'dCh'), ma = $('dMajor').value, mi = $('dMinor').value;
   const f = sc.f.filter(r => (!ma || r.major === ma) && (!mi || r.minor === mi));
-  const by = ma ? 'minor' : 'major';
-  const names = [...new Set(f.map(r => r[by]))].sort(ko);
-  const groups = names.map(n => ({name: n, s: sum(f.filter(r => r[by] === n))}));
-  if (groups.length > 1) groups.unshift({name: '합계', total: true, s: sum(f)});
-  const chTot = ch ? sum(rows.filter(r => r.ch === ch)) : null;
-  return {by, scope: sc, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
+  const by = ma ? 'minor' : 'major', groups = [];
+  for (const ch of channels(f)){
+    const cf = f.filter(r => r.ch === ch), chTot = sum(rows.filter(r => r.ch === ch)), teamLab = teamOf(rows, ch);
+    for (const n of [...new Set(cf.map(r => r[by]))].sort(ko)) groups.push({ch, teamLab, name: n, chTot, s: sum(cf.filter(r => r[by] === n))});
+  }
+  return {by, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
     if (amt){
-      const share = k === 'sales' && chTot ? [chTot.R.sales ? g.s.R.sales / chTot.R.sales : null, chTot.A.sales ? g.s.A.sales / chTot.A.sales : null] : null;
+      const share = k === 'sales' ? [g.chTot.R.sales ? g.s.R.sales / g.chTot.R.sales : null, g.chTot.A.sales ? g.s.A.sales / g.chTot.A.sales : null] : null;
       return {lab, amt: true, r: g.s.R[k], a: g.s.A[k], share, gap: g.s.A[k] - g.s.R[k]};
     }
     const r = rate(g.s.R, k), a = rate(g.s.A, k);
@@ -333,14 +342,14 @@ function renderDetail(rows){
   const t = $('detTable'); t.replaceChildren();
   const d = detailData(rows);
   const thead = el('thead'), hr = el('tr');
-  [['팀', ''], ['채널', ''], [d.by === 'major' ? '대카테고리' : '소카테고리', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  [['경로세부1', ''], ['팀구분', ''], [d.by === 'major' ? '대카테고리' : '소카테고리', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
   thead.append(hr);
   const tb = el('tbody');
   if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 9; tr.append(td); tb.append(tr); }
   for (const g of d.groups){
     g.lines.forEach((ln, i) => {
-      const tr = el('tr', null, [i === 0 ? 'gstart' : '', g.total ? 'total' : '', ln.amt ? 'amt' : ''].filter(Boolean).join(' '));
-      if (i === 0){ scopeCells(tr, d.scope, g.lines.length); const td = el('td', g.name, 'grp'); td.rowSpan = g.lines.length; tr.append(td); }
+      const tr = el('tr', null, [i === 0 ? 'gstart' : '', ln.amt ? 'amt' : ''].filter(Boolean).join(' '));
+      if (i === 0){ scopeCells(tr, g.ch, g.teamLab, g.lines.length); const td = el('td', g.name, 'grp'); td.rowSpan = g.lines.length; tr.append(td); }
       const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
       tr.append(el('td', ln.lab, 'lab'),
         el('td', f(ln.r), 'n' + (ln.r < 0 ? ' neg' : '')),
@@ -448,16 +457,16 @@ async function load(getSheets, name){
 function exportXlsx(){
   if (!st.data) return;
   const {rows} = monthRows();
-  const s = summaryData(rows), ss = s.scope;
-  const a1 = [[`${st.month} 요약`], ['팀', '채널', '항목', 'Rolling', '現 실적', '진척율'], ...s.map(d => [ss.teamLab, ss.chLab, d.lab, fin(d.r) ? d.r : null, fin(d.a) ? d.a : null, d.amt && fin(d.prog) ? d.prog : null])];
+  const blocks = summaryBlocks(rows), a1 = [[`${st.month} 요약`], ['경로세부1', '팀구분', '항목', 'Rolling', '現 실적', '진척율']], f1 = [];
+  for (const b of blocks) for (const d of b.lines){ a1.push([b.chLab, b.teamLab, d.lab, fin(d.r) ? d.r : null, fin(d.a) ? d.a : null, d.amt && fin(d.prog) ? d.prog : null]); f1.push(d.amt); }
   const ws1 = XLSX.utils.aoa_to_sheet(a1);
-  s.forEach((d, i) => { const R = i + 2; [3, 4].forEach(C => { const c = ws1[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = d.amt ? '#,##0' : '0.0%'; }); const c = ws1[XLSX.utils.encode_cell({r: R, c: 5})]; if (c) c.z = '0.0%'; });
-  const d = detailData(rows), ds = d.scope;
+  f1.forEach((amt, i) => { const R = i + 2; [3, 4].forEach(C => { const c = ws1[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = amt ? '#,##0' : '0.0%'; }); const c = ws1[XLSX.utils.encode_cell({r: R, c: 5})]; if (c) c.z = '0.0%'; });
+  const d = detailData(rows);
   const filt = [$('dMajor').value || '전체 대카테고리', $('dMinor').value || '전체 소카테고리'].join(' · ');
-  const a2 = [[`${st.month} 상세 · ${filt}`], ['팀', '채널', d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
+  const a2 = [[`${st.month} 상세 · ${filt}`], ['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
   const fmts = [];
   for (const g of d.groups) for (const ln of g.lines){
-    a2.push([ds.teamLab, ds.chLab, g.name, ln.lab, fin(ln.r) ? ln.r : null, fin(ln.a) ? ln.a : null, ln.share && fin(ln.share[0]) ? ln.share[0] : null, ln.share && fin(ln.share[1]) ? ln.share[1] : null, fin(ln.gap) ? ln.gap : null]);
+    a2.push([g.ch, g.teamLab, g.name, ln.lab, fin(ln.r) ? ln.r : null, fin(ln.a) ? ln.a : null, ln.share && fin(ln.share[0]) ? ln.share[0] : null, ln.share && fin(ln.share[1]) ? ln.share[1] : null, fin(ln.gap) ? ln.gap : null]);
     fmts.push(ln.amt);
   }
   const ws2 = XLSX.utils.aoa_to_sheet(a2);
