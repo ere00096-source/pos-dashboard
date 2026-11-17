@@ -64,6 +64,8 @@ tbody tr.sel td{background:var(--pri-soft)!important}
 .badge.ok{background:var(--ok-soft);color:var(--ok)}
 .badge.na{background:#eef0f3;color:var(--sub)}
 .up{color:var(--sev1)}
+.why{white-space:normal;min-width:300px;max-width:440px;font-size:12px;line-height:1.45}
+.why div+div{margin-top:3px}
 .down{color:var(--pri)}
 .charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}
 .chartbox{border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
@@ -136,6 +138,10 @@ function el(tag, content, cls){ const e = document.createElement(tag); if (conte
 const fmtNum = v => v == null || !isFinite(v) ? '–' : Number(v).toLocaleString('ko-KR', {maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 1});
 const fmtPct = v => v == null || !isFinite(v) ? '–' : (v * 100).toFixed(1) + '%';
 const fmtSigned = v => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+// 변화가 작아 소수 1자리로는 0.0으로 보일 때는 2자리로
+const fine = d => d != null && Math.abs(d) < 0.001 ? 2 : 1;
+const pctN = (v, n) => v == null || !isFinite(v) ? '–' : (v * 100).toFixed(n) + '%';
+const ppN = (v, n) => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + (v * 100).toFixed(n) + '%p';
 const fmtPp = v => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%p';
 
 // ---------- 입력 읽기 ----------
@@ -314,8 +320,9 @@ function evaluate(agg){
   const trendUp = slope != null && slope > 0;
   const sev3 = trendUp && g != null && (g < 0 || g < trendG);
   const reasons = [];
-  if (sev1) reasons.push(`매출차감율이 ${fmtPct(b.chk)} → ${fmtPct(p.chk)} (${fmtPp(dpp)})로 오르는데 총매출은 ${fmtSigned(g)} 줄어요.`);
-  if (sev2) reasons.push(`총매출 증가율 ${fmtSigned(g)}이 매출차감율 증가율 ${rg == null ? fmtPp(dpp) : fmtSigned(rg)}보다 낮아요 (매출차감율 ${fmtPct(b.chk)} → ${fmtPct(p.chk)}).`);
+  const k = fine(dpp);
+  if (sev1) reasons.push(`매출차감율이 ${pctN(b.chk, k)} → ${pctN(p.chk, k)} (${ppN(dpp, k)})로 오르는데 총매출은 ${fmtSigned(g)} 줄어요.`);
+  if (sev2) reasons.push(`총매출 증가율 ${fmtSigned(g)}이 매출차감율 증가율 ${rg == null ? fmtPp(dpp) : fmtSigned(rg)}보다 낮아요 (매출차감율 ${pctN(b.chk, k)} → ${pctN(p.chk, k)}).`);
   if (sev3) reasons.push(g < 0 ? `기준연도 월별 매출은 오르는 추세(추세 성장률 ${fmtSigned(trendG)})인데 계획 매출은 ${fmtSigned(g)} 줄어요.` : `기준연도 추세대로면 ${fmtSigned(trendG)} 성장인데 계획은 ${fmtSigned(g)}만 올라요.`);
   const sev = sev1 ? 1 : sev2 ? 2 : sev3 ? 3 : 0;
   const na = b.total <= 0 ? (p.total > 0 ? '기준연도 매출 없음(신규)' : '매출 없음') : '';
@@ -356,6 +363,7 @@ const COLS = [
   {k: 'ch', h: '채널', v: r => r.ch},
   {k: 'major', h: '대분류', v: r => r.major},
   {k: 'minor', h: '소분류', v: r => r.minor},
+  {k: 'why', h: '점검 내용', v: r => r.ev.reasons.join(' '), cell: r => { const td = el('div', null, 'why'); if (r.ev.reasons.length) r.ev.reasons.forEach(x => td.append(el('div', x))); else td.append(el('span', r.ev.na || '–', 'sub')); return td; }},
   {k: 'sb', h: 'B 총매출', v: r => r.agg.base.total, n: 1, f: fmtNum},
   {k: 'sp', h: 'P 총매출', v: r => r.agg.plan.total, n: 1, f: fmtNum},
   {k: 'g', h: '매출 증가율', v: r => r.ev.g, n: 1, f: fmtSigned, cls: v => v == null ? '' : v < 0 ? 'down' : ''},
@@ -538,11 +546,12 @@ async function load(getSheets, name){
 }
 function exportXlsx(){
   const d = st.data, cols = COLS.filter(c => !c.only || c.only.includes(st.unit));
-  const head = ['판정', '사유', ...cols.slice(1).flatMap(c => c.f && c.f.length > 1 ? [0, 1].map(j => { const nm = c.h.replace(' B→P', ''), y = j ? d.planLabel : d.baseLabel; return nm.startsWith('(참고) ') ? '(참고) ' + y + ' ' + nm.slice(5) : y + ' ' + nm; }) : [headName(c.h)])];
+  const ecols = cols.slice(1).filter(c => c.k !== 'why');
+  const head = ['판정', '점검 내용', ...ecols.flatMap(c => c.f && c.f.length > 1 ? [0, 1].map(j => { const nm = c.h.replace(' B→P', ''), y = j ? d.planLabel : d.baseLabel; return nm.startsWith('(참고) ') ? '(참고) ' + y + ' ' + nm.slice(5) : y + ' ' + nm; }) : [headName(c.h)])];
   const rows = (st.view || []).map(r => {
     const sevText = r.ev.na || [r.ev.sev1 && '매출차감율 증가 & 총매출 감소', r.ev.sev2 && '매출차감율 증가 대비 총매출 증가 과소', r.ev.sev3 && '추세 점검'].filter(Boolean).join(', ') || '정상';
     const out = [sevText, r.ev.reasons.join(' / ')];
-    for (const c of cols.slice(1)){
+    for (const c of ecols){
       if (c.f && c.f.length > 1){ const k = c.k; out.push(r.agg.base[k] ?? null, r.agg.plan[k] ?? null); }
       else { const v = c.v(r); out.push(v == null || (typeof v === 'number' && !isFinite(v)) ? null : v); }
     }
