@@ -433,10 +433,14 @@ function diagnose(rows, ch){
     short = majors.filter(g => g.s.R.sales > 0 && g.s.A.sales / g.s.R.sales < e.exp).sort((a, b) => b.s.R.sales - a.s.R.sales);
     L.push('① 매출 진척율 부족 Cat' + (short.length ? '' : ': 없음'));
     for (const g of short){
-      const mins = [...new Set(g.rs.map(r => r.minor))].map(n => ({name: n, s: sum(g.rs.filter(r => r.minor === n))}))
-        .filter(m => m.s.R.sales > 0 && m.s.A.sales / m.s.R.sales < e.exp).sort((a, b) => b.s.R.sales - a.s.R.sales);
-      L.push(` - ${shortName(g.name)} 진척율 ${fmtPct(g.s.A.sales / g.s.R.sales)} 잔여기간 매출 ${mil(g.s.R.sales - g.s.A.sales)}`
-        + (mins.length ? ` (${mins.map(m => `${shortName(m.name)} ${fmtPct(m.s.A.sales / m.s.R.sales)} 잔여 ${mil(m.s.R.sales - m.s.A.sales)}`).join(', ')})` : ''));
+      // 잔여 매출 큰 소카테고리부터, 누적이 대카테고리 잔여의 90% 이상이 될 때까지 나열
+      const gRem = g.s.R.sales - g.s.A.sales, all = [...new Set(g.rs.map(r => r.minor))].map(n => { const s = sum(g.rs.filter(r => r.minor === n)); return {name: n, s, rem: s.R.sales - s.A.sales}; })
+        .filter(m => m.rem > 0).sort((a, b) => b.rem - a.rem);
+      const mins = []; let cum = 0;
+      for (const m of all){ if (gRem > 0 && cum >= 0.9 * gRem) break; mins.push(m); cum += m.rem; }
+      const pr = m => m.s.R.sales > 0 ? fmtPct(m.s.A.sales / m.s.R.sales) : '-';
+      L.push(` - ${shortName(g.name)} 진척율 ${fmtPct(g.s.A.sales / g.s.R.sales)} 잔여기간 매출 ${mil(gRem)}`
+        + (mins.length ? ` (${mins.map(m => `${shortName(m.name)} ${pr(m)} 잔여 ${mil(m.rem)}`).join(', ')} → 잔여의 ${fmtPct(gRem > 0 ? cum / gRem : 0)})` : ''));
     }
   }
   const skus = skuList(cr);
