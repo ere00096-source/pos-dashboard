@@ -440,7 +440,7 @@ function diagnose(rows, ch){
       for (const m of all){ if (gRem > 0 && cum >= 0.9 * gRem) break; mins.push(m); cum += m.rem; }
       const pr = m => m.s.R.sales > 0 ? fmtPct(m.s.A.sales / m.s.R.sales) : '-';
       L.push(` - ${shortName(g.name)} 진척율 ${fmtPct(g.s.A.sales / g.s.R.sales)} 잔여기간 매출 ${mil(gRem)}`
-        + (mins.length ? ` (${mins.map(m => `${shortName(m.name)} ${pr(m)} 잔여 ${mil(m.rem)}`).join(', ')})` : ''));
+        + (mins.length ? `_${mins.map(m => `${shortName(m.name)} ${pr(m)} 잔여 ${mil(m.rem)}`).join(', ')}` : ''));
     }
   }
   const skus = skuList(cr);
