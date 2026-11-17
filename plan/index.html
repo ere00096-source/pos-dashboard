@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>사업계획 점검</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2433;--sub:#667085;--muted:#98a2b3;--line:#e2e5ea;--pri:#1f5fbf;--pri-soft:#e8f0fb;--err:#b42318;--err-soft:#fdecea;--warn:#93600a;--warn-soft:#fdf3dc;--ok:#18794e;--ok-soft:#e3f5ec;--sev1:#b42318;--sev1-soft:#fdecea;--sev2:#b54708;--sev2-soft:#fef0e5;--sev3:#8a6a00;--sev3-soft:#fdf6d8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:0 24px;display:flex;align-items:center;gap:16px;height:56px}
+header h1{font-size:17px;margin:0}
+header a{color:var(--sub);font-size:13px;text-decoration:none;margin-left:auto}
+main{max-width:1320px;margin:0 auto;padding:20px 24px 60px}
+.notice{color:var(--sub);font-size:13px;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:16px;min-width:0}
+.card h2{font-size:15px;margin:0 0 12px}
+.need{color:var(--sub);font-size:13px;margin:0 0 14px}
+.inputs{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.zone{border:2px dashed #c3c9d3;border-radius:8px;padding:20px 16px;text-align:center;color:var(--sub);cursor:pointer;min-height:96px;display:flex;flex-direction:column;justify-content:center;outline:0}
+.zone:focus,.zone.over{border-color:var(--pri);background:var(--pri-soft);color:var(--pri)}
+.zone b{color:var(--ink);font-size:15px}
+.zone:focus b,.zone.over b{color:var(--pri)}
+button.main{background:var(--pri);color:#fff;border:0;border-radius:6px;padding:8px 16px;font:inherit;font-weight:700;cursor:pointer}
+button.sec{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.msg{border-radius:6px;padding:10px 12px;margin:10px 0 0;font-size:13px}
+.msg.err{background:var(--err-soft);color:var(--err)}
+.msg.warn{background:var(--warn-soft);color:var(--warn)}
+.msg.ok{background:var(--ok-soft);color:var(--ok)}
+.msg ul{margin:4px 0 0;padding-left:18px}
+.hide{display:none!important}
+.sub{color:var(--sub);font-size:13px}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--card);cursor:default}
+.tile.click{cursor:pointer}
+.tile.click:hover{border-color:var(--pri)}
+.tile.on{outline:2px solid var(--pri)}
+.tile span{display:block;color:var(--sub);font-size:12px}
+.tile b{display:block;font-size:22px;line-height:1.3}
+.tile small{color:var(--sub);font-size:12px}
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+.filters label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--sub)}
+.filters select,.filters input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:13px;color:var(--ink);background:#fff;min-width:120px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;color:var(--ink)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--pri);color:#fff}
+.tbl{overflow:auto;border:1px solid var(--line);border-radius:6px;max-height:620px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:6px 9px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}
+th{background:#f6f7f9;position:sticky;top:0;font-weight:700;z-index:1}
+th.sort{cursor:pointer}
+th.sort:hover{color:var(--pri)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr.row{cursor:pointer}
+tbody tr.row:hover td{background:#f8fafc}
+tbody tr.sel td{background:var(--pri-soft)!important}
+.badge{display:inline-flex;align-items:center;gap:3px;border-radius:10px;padding:1px 8px;font-size:12px;font-weight:700;margin-right:3px}
+.badge.s1{background:var(--sev1-soft);color:var(--sev1)}
+.badge.s2{background:var(--sev2-soft);color:var(--sev2)}
+.badge.s3{background:var(--sev3-soft);color:var(--sev3)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.na{background:#eef0f3;color:var(--sub)}
+.up{color:var(--sev1)}
+.down{color:var(--pri)}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}
+.chartbox{border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.chartbox h3{font-size:13px;margin:0 0 8px}
+.chartwrap{position:relative;height:260px}
+.reason{margin:4px 0 0;padding-left:18px;font-size:13px}
+.actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+@media(max-width:900px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.charts{grid-template-columns:1fr}.inputs{grid-template-columns:1fr}main{padding:16px 16px 48px}header{padding:0 16px}}
+</style>
+</head>
+<body>
+<header><h1>사업계획 점검</h1><a href="../">← POS 데이터 관리</a></header>
+<main>
+  <p class="notice">자료는 지금 쓰는 브라우저 안에만 저장되고 어디로도 전송되지 않아요.</p>
+
+  <div class="card">
+    <h2>1. 계획 자료 넣기</h2>
+    <p class="need">채널 · 대분류 · 소분류 · 값(총매출, 비용%, 장려금%, DC+반품%, 판관비%) · 기준연도 1~12월 · 계획연도 1~12월 양식이에요. 피벗 표처럼 빈칸은 위 값을 이어받아요. 다시 넣으면 통째로 바뀌어요.</p>
+    <div class="inputs">
+      <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 연도·제목 행까지 복사해 붙여넣기</span></div>
+      <div class="zone" id="drop"><b>엑셀 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
+    </div>
+    <input type="file" id="file" class="hide" accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv">
+    <p id="busy" class="sub hide" style="margin-top:12px">읽는 중이에요...</p>
+    <div id="loadMsg"></div>
+    <div class="actions" style="margin-top:10px"><span class="sub" id="dataInfo">아직 자료가 없어요.</span><button class="sec hide" id="clearData">자료 지우기</button></div>
+  </div>
+
+  <div id="board" class="hide">
+    <div class="card">
+      <h2>2. 점검 요약 <span class="sub" id="yearInfo"></span></h2>
+      <div class="tiles" id="tiles"></div>
+      <p class="sub" style="margin:10px 0 0">점검 비용율 = 장려금% + DC+반품% (판관비는 배부 방식 변경으로 점검에서 제외, 참고로만 표시). 연간 비율은 월 매출 가중 평균이에요.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. 점검 목록</h2>
+      <div class="filters">
+        <label>보기 단위<span class="seg" id="unit"><button data-v="minor" class="on">소분류</button><button data-v="major">대분류</button><button data-v="ch">채널</button></span></label>
+        <label>판정<select id="fSev"><option value="">전체</option><option value="flag">점검 대상 전체</option><option value="1">🔴 최우선 점검</option><option value="2">🟠 점검</option><option value="3">🟡 추세 점검</option><option value="0">정상</option></select></label>
+        <label>채널<select id="fCh"></select></label>
+        <label>대분류<select id="fMajor"></select></label>
+        <label>검색<input id="fQ" placeholder="채널·분류 이름"></label>
+        <button class="sec" id="save">엑셀로 저장</button>
+      </div>
+      <p class="sub" id="listInfo" style="margin:0 0 8px"></p>
+      <div class="tbl"><table id="list"></table></div>
+    </div>
+
+    <div class="card hide" id="detail">
+      <h2 id="dTitle"></h2>
+      <div id="dReason"></div>
+      <div class="charts">
+        <div class="chartbox"><h3>월별 총매출</h3><div class="chartwrap"><canvas id="cSales"></canvas></div></div>
+        <div class="chartbox"><h3>월별 점검 비용율 (장려금% + DC+반품%)</h3><div class="chartwrap"><canvas id="cRate"></canvas></div></div>
+      </div>
+      <div class="tbl" style="max-height:none"><table id="dTable"></table></div>
+    </div>
+  </div>
+</main>
+<script src="../xlsx.full.min.js"></script>
+<script src="../chart.umd.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const text = v => v == null ? '' : String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+const norm = v => text(v).replace(/\s+/g, '').toLowerCase();
+class UserError extends Error {}
+function el(tag, content, cls){ const e = document.createElement(tag); if (content != null) e.textContent = content; if (cls) e.className = cls; return e; }
+const fmtNum = v => v == null || !isFinite(v) ? '–' : Number(v).toLocaleString('ko-KR', {maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 1});
+const fmtPct = v => v == null || !isFinite(v) ? '–' : (v * 100).toFixed(1) + '%';
+const fmtSigned = v => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+const fmtPp = v => v == null || !isFinite(v) ? '–' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%p';
+
+// ---------- 입력 읽기 ----------
+function parseDelimited(raw, delimiter){
+  const rows = []; let row = [], cell = '', quoted = false, started = false;
+  for (let i = 0; i < raw.length; i++){
+    const ch = raw[i];
+    if (quoted){ if (ch === '"'){ if (raw[i + 1] === '"'){ cell += '"'; i++; } else quoted = false; } else cell += ch; continue; }
+    if (ch === '"' && cell === ''){ quoted = true; started = true; }
+    else if (ch === delimiter){ row.push(cell); cell = ''; started = true; }
+    else if (ch === '\n' || ch === '\r'){ if (ch === '\r' && raw[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; started = false; }
+    else { cell += ch; started = true; }
+  }
+  if (started || cell){ row.push(cell); rows.push(row); }
+  return rows;
+}
+function decodeBytes(buf){
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(buf).replace(/^﻿/, ''); }
+  catch { return new TextDecoder('euc-kr').decode(buf); }
+}
+const DRM_HINT = '파일을 열지 못했어요. 암호나 보안(DRM)이 걸린 파일일 수 있어요. 엑셀에서 열어 복사한 뒤 붙여넣기로 넣어 주세요.';
+async function fileSheets(file){
+  const lower = file.name.toLowerCase(), buf = await file.arrayBuffer();
+  if (/\.(csv|txt|tsv)$/.test(lower)){
+    const raw = decodeBytes(buf);
+    return [{name: file.name, rows: parseDelimited(raw, raw.split('\n', 1)[0].includes('\t') ? '\t' : ',')}];
+  }
+  if (!/\.(xlsx|xlsm|xls)$/.test(lower)) throw new UserError('xlsx, xls, csv 파일만 넣을 수 있어요.');
+  const head = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
+  if (/\.(xlsx|xlsm)$/.test(lower) && !(head[0] === 0x50 && head[1] === 0x4b)) throw new UserError(DRM_HINT);
+  let wb;
+  try { wb = XLSX.read(new Uint8Array(buf), {type: 'array', dense: true}); } catch { throw new UserError(DRM_HINT); }
+  return wb.SheetNames.filter(n => wb.Sheets[n] && wb.Sheets[n]['!ref']).map(n => ({name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: null, blankrows: false})}));
+}
+
+// ---------- 양식 해석 ----------
+const MONTH_RE = /^(\d{1,2})월$/, YEAR_RE = /(\d{2,4})\s*년/;
+function numVal(v){
+  if (typeof v === 'number') return v;
+  const s = text(v).replace(/[,₩\s]/g, '');
+  if (s === '' || s === '-') return null;
+  const n = Number(s);
+  return isFinite(n) ? n : NaN;
+}
+// "48.9%" → 0.489, 엑셀 비율 셀 0.489 → 0.489, 숫자 48.9 → 0.489
+function pctVal(v){
+  if (typeof v === 'number') return Math.abs(v) > 2 ? v / 100 : v;
+  const s = text(v).replace(/[,\s]/g, '');
+  if (s === '' || s === '-') return null;
+  if (s.endsWith('%')){ const n = Number(s.slice(0, -1)); return isFinite(n) ? n / 100 : NaN; }
+  const n = Number(s);
+  return !isFinite(n) ? NaN : Math.abs(n) > 2 ? n / 100 : n;
+}
+function kindOf(v){
+  const n = norm(v);
+  if (n.includes('총매출') || n.includes('매출')) return 'sales';
+  if (n.includes('장려금')) return 'inc';
+  if (n.includes('dc') || n.includes('반품')) return 'dc';
+  if (n.includes('판관비')) return 'sga';
+  if (n.includes('비용')) return 'cost';
+  return '';
+}
+const KIND_NAME = {sales: '총매출', inc: '장려금%', dc: 'DC+반품%', sga: '판관비%', cost: '비용%'};
+function parsePlan(sheets){
+  for (const sheet of sheets){
+    const rows = sheet.rows;
+    const hi = rows.findIndex((r, i) => i < 30 && r && r.some(c => norm(c) === '채널') && r.some(c => norm(c) === '값') && r.filter(c => MONTH_RE.test(norm(c))).length >= 12);
+    if (hi < 0) continue;
+    const head = rows[hi].map(norm);
+    const ci = head.indexOf('채널'), mi = head.indexOf('대분류'), si = head.indexOf('소분류'), vi = head.indexOf('값');
+    // 연도: 제목 위 줄의 "26년" 등을 오른쪽으로 이어받기, 없으면 1월이 다시 나올 때 다음 해
+    const yearRow = hi > 0 ? (rows[hi - 1] || []) : [];
+    const cols = [];
+    let curYear = null, seq = 0, prevM = 99;
+    head.forEach((h, i) => {
+      const yc = text(yearRow[i]).match(YEAR_RE);
+      if (yc) curYear = yc[1];
+      const m = h.match(MONTH_RE);
+      if (!m) return;
+      const mo = +m[1];
+      if (mo <= prevM) seq++;
+      prevM = mo;
+      cols.push({i, mo, year: curYear || `#${seq}`});
+    });
+    const years = [...new Set(cols.map(c => c.year))];
+    if (years.length < 2) throw new UserError('기준연도와 계획연도 두 해의 1~12월 열이 필요해요.');
+    const baseY = years[0], planY = years[years.length - 1];
+    const label = y => /^#/.test(y) ? (y === baseY ? '기준연도' : '계획연도') : (y.length === 4 ? y.slice(2) : y) + '년';
+    const colOf = y => { const a = Array(12).fill(null); cols.filter(c => c.year === y && c.mo >= 1 && c.mo <= 12).forEach(c => { a[c.mo - 1] = c.i; }); return a; };
+    const baseCols = colOf(baseY), planCols = colOf(planY);
+    const items = new Map(), warnings = [], errors = [], unknownKinds = new Set();
+    let ch = '', major = '', minor = '';
+    for (let r = hi + 1; r < rows.length; r++){
+      const row = rows[r] || [];
+      if (!row.some(c => text(c))) continue;
+      const c0 = text(row[ci]), m0 = mi < 0 ? '' : text(row[mi]), s0 = si < 0 ? '' : text(row[si]);
+      if (c0){ ch = c0; major = m0; minor = s0; }
+      else if (m0){ major = m0; minor = s0; }
+      else if (s0) minor = s0;
+      if ([ch, major, minor].some(x => /총합계|^합계$|요약$|소계$/.test(x)) || [c0, m0, s0].some(x => /총합계|요약$|소계$/.test(x))) continue;
+      const kind = kindOf(row[vi]);
+      if (!kind){ if (text(row[vi])) unknownKinds.add(text(row[vi])); continue; }
+      if (!ch){ errors.push(`${r + 1}행: 채널이 비어 있어요.`); continue; }
+      const key = [ch, major, minor].join('|');
+      if (!items.has(key)) items.set(key, {ch, major, minor, base: {}, plan: {}});
+      const it = items.get(key);
+      for (const [store, colsY] of [[it.base, baseCols], [it.plan, planCols]]){
+        store[kind] = colsY.map(ix => {
+          if (ix == null) return null;
+          const v = kind === 'sales' ? numVal(row[ix]) : pctVal(row[ix]);
+          if (Number.isNaN(v)){ errors.push(`${r + 1}행 ${KIND_NAME[kind]}: 숫자가 아닌 값 "${text(row[ix])}"`); return null; }
+          return v;
+        });
+      }
+    }
+    if (!items.size) throw new UserError('읽은 항목이 없어요. "값" 열에 "합계 : 총매출" 같은 이름이 있는지 확인해 주세요.');
+    const list = [...items.values()];
+    const noSales = list.filter(it => !it.base.sales && !it.plan.sales).length;
+    if (noSales) warnings.push(`총매출 줄이 없는 항목 ${noSales}개는 매출 0으로 봐요.`);
+    const noChk = list.filter(it => !it.base.inc && !it.base.dc && !it.plan.inc && !it.plan.dc).length;
+    if (noChk) warnings.push(`장려금%·DC+반품% 줄이 없는 항목 ${noChk}개는 "비용% − 판관비%"로 점검 비용율을 계산해요.`);
+    if (unknownKinds.size) warnings.push(`모르는 값 이름은 건너뛰었어요: ${[...unknownKinds].slice(0, 5).join(', ')}`);
+    return {items: list, baseLabel: label(baseY), planLabel: label(planY), sheet: sheet.name, warnings, errors};
+  }
+  throw new UserError('양식을 찾지 못했어요. 제목 행에 "채널", "값"과 1월~12월 열(두 해)이 있어야 해요.');
+}
+
+// ---------- 계산 ----------
+// 여러 항목을 합친 월별 매출·비용 금액 → 비율
+function aggregate(items){
+  const z = () => Array(12).fill(0);
+  const out = {};
+  for (const yr of ['base', 'plan']){
+    const S = z(), inc = z(), dc = z(), sga = z(), cost = z(), chk = z();
+    for (const it of items){
+      const d = it[yr];
+      for (let m = 0; m < 12; m++){
+        const s = (d.sales && d.sales[m]) || 0;
+        S[m] += s;
+        const vi = d.inc && d.inc[m], vd = d.dc && d.dc[m], vs = d.sga && d.sga[m], vc = d.cost && d.cost[m];
+        inc[m] += s * (vi || 0); dc[m] += s * (vd || 0); sga[m] += s * (vs || 0);
+        const c = vc != null ? vc : (vi || 0) + (vd || 0) + (vs || 0);
+        cost[m] += s * c;
+        chk[m] += s * (vi != null || vd != null ? (vi || 0) + (vd || 0) : (vc || 0) - (vs || 0));
+      }
+    }
+    const sum = a => a.reduce((x, y) => x + y, 0), tot = sum(S);
+    const rate = (a, m) => S[m] ? a[m] / S[m] : null;
+    const yRate = a => tot ? sum(a) / tot : null;
+    out[yr] = {S, total: tot, monthly: {chk: chk.map((_, m) => rate(chk, m)), inc: inc.map((_, m) => rate(inc, m)), dc: dc.map((_, m) => rate(dc, m)), sga: sga.map((_, m) => rate(sga, m)), cost: cost.map((_, m) => rate(cost, m))},
+      chk: yRate(chk), inc: yRate(inc), dc: yRate(dc), sga: yRate(sga), cost: yRate(cost)};
+  }
+  return out;
+}
+const EPS = 0.00005;  // 0.005%p 이하 변화는 같다고 봄
+function evaluate(agg){
+  const b = agg.base, p = agg.plan;
+  const g = b.total > 0 ? p.total / b.total - 1 : null;
+  const dpp = b.chk != null && p.chk != null ? p.chk - b.chk : null;
+  const rg = dpp != null && b.chk > 0 ? p.chk / b.chk - 1 : null;
+  // 기준연도 월별 추세선 (최소제곱) → 계획연도까지 연장
+  let slope = null, trendG = null;
+  const pts = b.S.map((y, i) => [i + 1, y]);
+  if (b.total > 0){
+    const n = 12, sx = 78, sxx = 650, sy = b.total, sxy = pts.reduce((s, [x, y]) => s + x * y, 0);
+    slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+    const a = (sy - slope * sx) / n;
+    const proj = 12 * a + slope * 222;  // x = 13..24
+    trendG = proj / b.total - 1;
+  }
+  const costUp = dpp != null && dpp > EPS;
+  const sev1 = costUp && g != null && g < 0;
+  const sev2 = costUp && g != null && g >= 0 && (rg == null || g < rg);
+  const trendUp = slope != null && slope > 0;
+  const sev3 = trendUp && g != null && (g < 0 || g < trendG);
+  const reasons = [];
+  if (sev1) reasons.push(`점검 비용율이 ${fmtPct(b.chk)} → ${fmtPct(p.chk)} (${fmtPp(dpp)})로 오르는데 총매출은 ${fmtSigned(g)} 줄어요.`);
+  if (sev2) reasons.push(`총매출 증가율 ${fmtSigned(g)}이 점검 비용율 증가율 ${rg == null ? fmtPp(dpp) : fmtSigned(rg)}보다 낮아요 (비용율 ${fmtPct(b.chk)} → ${fmtPct(p.chk)}).`);
+  if (sev3) reasons.push(g < 0 ? `기준연도 월별 매출은 오르는 추세(추세 성장률 ${fmtSigned(trendG)})인데 계획 매출은 ${fmtSigned(g)} 줄어요.` : `기준연도 추세대로면 ${fmtSigned(trendG)} 성장인데 계획은 ${fmtSigned(g)}만 올라요.`);
+  const sev = sev1 ? 1 : sev2 ? 2 : sev3 ? 3 : 0;
+  const na = b.total <= 0 ? (p.total > 0 ? '기준연도 매출 없음(신규)' : '매출 없음') : '';
+  return {g, dpp, rg, slope, trendG, trendUp, sev1, sev2, sev3, sev, reasons, na};
+}
+
+// ---------- 저장 (IndexedDB) ----------
+function idb(){
+  return new Promise((res, rej) => {
+    const q = indexedDB.open('plan-check', 1);
+    q.onupgradeneeded = () => q.result.createObjectStore('data');
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+}
+async function dbPut(v){ try { const db = await idb(); await new Promise((res, rej) => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').put(v, 'current'); t.oncomplete = res; t.onerror = () => rej(t.error); }); return true; } catch { return false; } }
+async function dbGet(){ try { const db = await idb(); return await new Promise((res, rej) => { const q = db.transaction('data').objectStore('data').get('current'); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); } catch { return null; } }
+async function dbClear(){ try { const db = await idb(); await new Promise(res => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').delete('current'); t.oncomplete = res; t.onerror = res; }); } catch {} }
+
+// ---------- 화면 ----------
+const st = {data: null, unit: 'minor', sevFilter: '', sortKey: null, sortDir: -1, selected: null, charts: {}, rows: []};
+const SEV = {1: ['s1', '🔴 최우선 점검'], 2: ['s2', '🟠 점검'], 3: ['s3', '🟡 추세 점검'], 0: ['ok', '정상']};
+function groupRows(){
+  const d = st.data, q = norm($('fQ').value), fc = $('fCh').value, fm = $('fMajor').value;
+  const items = d.items.filter(it => (!fc || it.ch === fc) && (!fm || it.major === fm) && (!q || norm([it.ch, it.major, it.minor].join(' ')).includes(q)));
+  const keyOf = it => st.unit === 'ch' ? it.ch : st.unit === 'major' ? it.ch + '|' + it.major : it.ch + '|' + it.major + '|' + it.minor;
+  const groups = new Map();
+  for (const it of items){ const k = keyOf(it); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+  return [...groups].map(([k, list]) => {
+    const agg = aggregate(list), ev = evaluate(agg), f = list[0];
+    return {key: k, ch: f.ch, major: st.unit === 'ch' ? '' : f.major, minor: st.unit === 'minor' ? f.minor : '', count: list.length, agg, ev};
+  });
+}
+const COLS = [
+  {k: 'sev', h: '판정', v: r => r.ev.sev === 0 ? 9 : r.ev.sev, cell: r => badges(r)},
+  {k: 'ch', h: '채널', v: r => r.ch},
+  {k: 'major', h: '대분류', v: r => r.major, only: ['minor', 'major']},
+  {k: 'minor', h: '소분류', v: r => r.minor, only: ['minor']},
+  {k: 'sb', h: 'B 총매출', v: r => r.agg.base.total, n: 1, f: fmtNum},
+  {k: 'sp', h: 'P 총매출', v: r => r.agg.plan.total, n: 1, f: fmtNum},
+  {k: 'g', h: '매출 증가율', v: r => r.ev.g, n: 1, f: fmtSigned, cls: v => v == null ? '' : v < 0 ? 'down' : ''},
+  {k: 'tg', h: 'B 추세 성장률', v: r => r.ev.trendG, n: 1, f: fmtSigned},
+  {k: 'cb', h: 'B 점검비용율', v: r => r.agg.base.chk, n: 1, f: fmtPct},
+  {k: 'cp', h: 'P 점검비용율', v: r => r.agg.plan.chk, n: 1, f: fmtPct},
+  {k: 'dpp', h: '비용율 변화', v: r => r.ev.dpp, n: 1, f: fmtPp, cls: v => v != null && v > EPS ? 'up' : ''},
+  {k: 'rg', h: '비용율 증가율', v: r => r.ev.rg, n: 1, f: fmtSigned, cls: v => v != null && v > 0 ? 'up' : ''},
+  {k: 'inc', h: '장려금% B→P', v: r => r.agg.plan.inc - r.agg.base.inc, n: 1, f: (v, r) => `${fmtPct(r.agg.base.inc)} → ${fmtPct(r.agg.plan.inc)}`},
+  {k: 'dc', h: 'DC+반품% B→P', v: r => r.agg.plan.dc - r.agg.base.dc, n: 1, f: (v, r) => `${fmtPct(r.agg.base.dc)} → ${fmtPct(r.agg.plan.dc)}`},
+  {k: 'sga', h: '(참고) 판관비% B→P', v: r => r.agg.plan.sga - r.agg.base.sga, n: 1, f: (v, r) => `${fmtPct(r.agg.base.sga)} → ${fmtPct(r.agg.plan.sga)}`},
+  {k: 'cost', h: '(참고) 비용% B→P', v: r => r.agg.plan.cost - r.agg.base.cost, n: 1, f: (v, r) => `${fmtPct(r.agg.base.cost)} → ${fmtPct(r.agg.plan.cost)}`},
+];
+const headName = h => h.replace(/^B /, st.data.baseLabel + ' ').replace(/^P /, st.data.planLabel + ' ').replace(/ B→P$/, ` ${st.data.baseLabel}→${st.data.planLabel}`).replace(/^\(참고\) (.*) B→P$/, `(참고) $1 ${st.data.baseLabel}→${st.data.planLabel}`);
+function badges(r){
+  const s = el('span');
+  if (r.ev.na){ s.append(el('span', r.ev.na, 'badge na')); return s; }
+  const list = [r.ev.sev1 && 1, r.ev.sev2 && 2, r.ev.sev3 && 3].filter(Boolean);
+  (list.length ? list : [0]).forEach(k => s.append(el('span', SEV[k][1], 'badge ' + SEV[k][0])));
+  return s;
+}
+function passSev(r){
+  const f = st.sevFilter;
+  if (!f) return true;
+  if (f === 'flag') return r.ev.sev > 0;
+  if (f === '0') return r.ev.sev === 0;
+  return r.ev['sev' + f];
+}
+function render(){
+  const d = st.data;
+  $('board').classList.toggle('hide', !d);
+  if (!d) return;
+  $('yearInfo').textContent = `· ${d.baseLabel} 실적 → ${d.planLabel} 계획`;
+  const all = groupRows();
+  st.rows = all;
+  // 요약 타일
+  const totAgg = aggregate(d.items.filter(it => (!$('fCh').value || it.ch === $('fCh').value) && (!$('fMajor').value || it.major === $('fMajor').value)));
+  const tot = evaluate(totAgg);
+  const cnt = k => all.filter(r => r.ev['sev' + k]).length;
+  const tiles = $('tiles'); tiles.replaceChildren();
+  const tile = (label, val, small, filter) => {
+    const t = el('div', null, 'tile' + (filter != null ? ' click' : '') + (filter != null && st.sevFilter === filter ? ' on' : ''));
+    t.append(el('span', label), el('b', val), el('small', small));
+    if (filter != null) t.onclick = () => { st.sevFilter = st.sevFilter === filter ? '' : filter; $('fSev').value = st.sevFilter; render(); };
+    tiles.append(t);
+  };
+  const unitName = {minor: '소분류', major: '대분류', ch: '채널'}[st.unit];
+  tile('🔴 최우선 점검', cnt(1), '비용율↑ · 매출↓', '1');
+  tile('🟠 점검', cnt(2), '매출 증가율 < 비용율 증가율', '2');
+  tile('🟡 추세 점검', cnt(3), `${d.baseLabel} 상승 추세 대비 계획 부진`, '3');
+  tile('점검 항목', all.length, `${unitName} 기준`, null);
+  tile('총매출 증가율', fmtSigned(tot.g), `${fmtNum(totAgg.base.total)} → ${fmtNum(totAgg.plan.total)}`, null);
+  tile('점검 비용율', fmtPp(tot.dpp), `${fmtPct(totAgg.base.chk)} → ${fmtPct(totAgg.plan.chk)}`, null);
+  // 목록
+  const rows = all.filter(passSev);
+  const cols = COLS.filter(c => !c.only || c.only.includes(st.unit));
+  const sortCol = cols.find(c => c.k === st.sortKey);
+  const cmp = (a, b) => {
+    if (sortCol){
+      const va = sortCol.v(a), vb = sortCol.v(b);
+      const na = va == null || (typeof va === 'number' && !isFinite(va)), nb = vb == null || (typeof vb === 'number' && !isFinite(vb));
+      if (na !== nb) return na ? 1 : -1;
+      if (!na && va !== vb) return (typeof va === 'string' ? va.localeCompare(vb, 'ko') : va - vb) * st.sortDir;
+    }
+    return (a.ev.sev || 9) - (b.ev.sev || 9) || b.agg.plan.total - a.agg.plan.total;
+  };
+  rows.sort(cmp);
+  st.view = rows;
+  $('listInfo').textContent = `${rows.length.toLocaleString()}개 표시 (전체 ${all.length.toLocaleString()}개 ${unitName}) · 행을 누르면 아래에 월별 그래프가 나와요 · 제목을 누르면 정렬`;
+  const t = $('list'); t.replaceChildren();
+  const hr = el('tr');
+  cols.forEach(c => {
+    const th = el('th', headName(c.h) + (st.sortKey === c.k ? (st.sortDir > 0 ? ' ▲' : ' ▼') : ''), 'sort' + (c.n ? ' n' : ''));
+    th.onclick = () => { if (st.sortKey === c.k) st.sortDir = -st.sortDir; else { st.sortKey = c.k; st.sortDir = c.n ? -1 : 1; } render(); };
+    hr.append(th);
+  });
+  const thead = el('thead'); thead.append(hr);
+  const tb = el('tbody');
+  for (const r of rows.slice(0, 1500)){
+    const tr = el('tr', null, 'row' + (st.selected === r.key ? ' sel' : ''));
+    cols.forEach(c => {
+      if (c.cell){ const td = el('td'); td.append(c.cell(r)); tr.append(td); return; }
+      const v = c.v(r);
+      const td = el('td', c.f ? c.f(v, r) : v, (c.n ? 'n ' : '') + (c.cls ? c.cls(v) : ''));
+      tr.append(td);
+    });
+    tr.onclick = () => { st.selected = r.key; render(); $('detail').scrollIntoView({behavior: 'smooth', block: 'start'}); };
+    tb.append(tr);
+  }
+  if (rows.length > 1500) tb.append((() => { const tr = el('tr'); const td = el('td', `외 ${rows.length - 1500}개는 필터로 좁혀 보세요.`, 'sub'); td.colSpan = cols.length; tr.append(td); return tr; })());
+  t.append(thead, tb);
+  renderDetail(all.find(r => r.key === st.selected));
+}
+const C26 = '#2a78d6', C27 = '#eb6834';
+function renderDetail(r){
+  const box = $('detail');
+  if (!r){ box.classList.add('hide'); return; }
+  box.classList.remove('hide');
+  const d = st.data;
+  $('dTitle').textContent = [r.ch, r.major, r.minor].filter(Boolean).join(' · ');
+  const reason = $('dReason'); reason.replaceChildren(badges(r));
+  if (r.ev.reasons.length){ const ul = el('ul', null, 'reason'); r.ev.reasons.forEach(x => ul.append(el('li', x))); reason.append(ul); }
+  else reason.append(el('p', r.ev.na || '점검 기준에 걸리지 않았어요.', 'sub'));
+  const months = Array.from({length: 12}, (_, i) => `${i + 1}월`);
+  const b = r.agg.base, p = r.agg.plan;
+  // 추세선
+  const trend = r.ev.slope == null ? null : (() => { const a = (b.total - r.ev.slope * 78) / 12; return months.map((_, i) => a + r.ev.slope * (i + 13)); })();
+  const tip = {mode: 'index', intersect: false};
+  const common = {responsive: true, maintainAspectRatio: false, animation: false, interaction: tip, plugins: {legend: {position: 'top', align: 'start', labels: {boxWidth: 12, boxHeight: 12, color: '#475467'}}, tooltip: tip},
+    scales: {x: {grid: {display: false}, ticks: {color: '#667085'}}}};
+  const salesDs = [
+    {type: 'bar', label: `${d.baseLabel} 실적`, data: b.S, backgroundColor: C26, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 24},
+    {type: 'bar', label: `${d.planLabel} 계획`, data: p.S, backgroundColor: C27, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 24},
+  ];
+  if (trend) salesDs.push({type: 'line', label: `${d.baseLabel} 추세선 연장`, data: trend, borderColor: '#667085', borderDash: [5, 4], borderWidth: 2, pointRadius: 0, fill: false});
+  const sOpt = structuredClone(common);
+  sOpt.scales.y = {beginAtZero: true, grid: {color: '#eef0f3'}, ticks: {color: '#667085', callback: v => Number(v).toLocaleString('ko-KR')}};
+  sOpt.plugins.tooltip = {...tip, callbacks: {label: c => `${c.dataset.label}: ${fmtNum(c.parsed.y)}`}};
+  const rOpt = structuredClone(common);
+  rOpt.scales.y = {grid: {color: '#eef0f3'}, ticks: {color: '#667085', callback: v => (v * 100).toFixed(0) + '%'}};
+  rOpt.plugins.tooltip = {...tip, callbacks: {label: c => `${c.dataset.label}: ${fmtPct(c.parsed.y)}`}};
+  const line = (label, data, color) => ({type: 'line', label, data, borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, spanGaps: true});
+  for (const [id, cfg] of [['cSales', {type: 'bar', data: {labels: months, datasets: salesDs}, options: sOpt}], ['cRate', {type: 'line', data: {labels: months, datasets: [line(`${d.baseLabel} 실적`, b.monthly.chk, C26), line(`${d.planLabel} 계획`, p.monthly.chk, C27)]}, options: rOpt}]]){
+    if (st.charts[id]) st.charts[id].destroy();
+    st.charts[id] = new Chart($(id), cfg);
+  }
+  // 월별 표
+  const t = $('dTable'); t.replaceChildren();
+  const hr = el('tr'); ['구분', ...months, '연간'].forEach((h, i) => hr.append(el('th', h, i ? 'n' : '')));
+  const thead = el('thead'); thead.append(hr); const tb = el('tbody');
+  const addRow = (name, arr, total, f) => { const tr = el('tr'); tr.append(el('td', name)); arr.forEach(v => tr.append(el('td', f(v), 'n'))); tr.append(el('td', f(total), 'n')); tb.append(tr); };
+  addRow(`${d.baseLabel} 총매출`, b.S, b.total, fmtNum);
+  addRow(`${d.planLabel} 총매출`, p.S, p.total, fmtNum);
+  addRow('매출 증가율', p.S.map((v, i) => b.S[i] ? v / b.S[i] - 1 : null), r.ev.g, fmtSigned);
+  for (const [k, n] of [['chk', '점검 비용율'], ['inc', '장려금%'], ['dc', 'DC+반품%'], ['sga', '(참고) 판관비%'], ['cost', '(참고) 비용%']]){
+    addRow(`${d.baseLabel} ${n}`, b.monthly[k], b[k], fmtPct);
+    addRow(`${d.planLabel} ${n}`, p.monthly[k], p[k], fmtPct);
+  }
+  t.append(thead, tb);
+}
+function fillSelect(sel, values, label){
+  const cur = sel.value;
+  sel.replaceChildren(el('option', `전체 ${label}`));
+  sel.options[0].value = '';
+  values.forEach(v => { const o = el('option', v); o.value = v; sel.append(o); });
+  sel.value = values.includes(cur) ? cur : '';
+}
+function refreshFilters(){
+  const d = st.data; if (!d) return;
+  fillSelect($('fCh'), [...new Set(d.items.map(i => i.ch))].sort((a, b) => a.localeCompare(b, 'ko')), '채널');
+  const fc = $('fCh').value;
+  fillSelect($('fMajor'), [...new Set(d.items.filter(i => !fc || i.ch === fc).map(i => i.major).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko')), '대분류');
+}
+function showInfo(){
+  const d = st.data;
+  $('dataInfo').textContent = d ? `저장된 자료: ${d.name} · 항목 ${d.items.length.toLocaleString()}개 · 채널 ${new Set(d.items.map(i => i.ch)).size}곳 · ${d.baseLabel}→${d.planLabel} · ${new Date(d.savedAt).toLocaleString('ko-KR')}` : '아직 자료가 없어요.';
+  $('clearData').classList.toggle('hide', !d);
+}
+function showMsgs(warnings, errors, okText){
+  const box = $('loadMsg'); box.replaceChildren();
+  if (okText) box.append(el('p', okText, 'msg ok'));
+  for (const [list, cls, title] of [[errors, 'err', '확인이 필요해요'], [warnings, 'warn', '참고']]){
+    if (!list || !list.length) continue;
+    const m = el('div', title, 'msg ' + cls), ul = el('ul');
+    list.slice(0, 15).forEach(x => ul.append(el('li', x)));
+    if (list.length > 15) ul.append(el('li', `외 ${list.length - 15}건`));
+    m.append(ul); box.append(m);
+  }
+}
+async function load(getSheets, name){
+  $('busy').classList.remove('hide'); $('loadMsg').replaceChildren();
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const parsed = parsePlan(await getSheets());
+    st.data = {items: parsed.items, baseLabel: parsed.baseLabel, planLabel: parsed.planLabel, name, savedAt: Date.now()};
+    st.selected = null;
+    const saved = await dbPut(st.data);
+    showMsgs(parsed.warnings, parsed.errors, `${parsed.items.length.toLocaleString()}개 항목을 읽었어요 (${parsed.baseLabel} 실적 → ${parsed.planLabel} 계획).${saved ? '' : ' 이 브라우저에는 저장하지 못해서 새로고침하면 다시 넣어야 해요.'}`);
+    showInfo(); refreshFilters(); render();
+  } catch (e) {
+    if (!(e instanceof UserError)) console.error(e);
+    showMsgs([], [e instanceof UserError ? e.message : `읽지 못했어요: ${e.message}`]);
+  } finally { $('busy').classList.add('hide'); }
+}
+function exportXlsx(){
+  const d = st.data, cols = COLS.filter(c => !c.only || c.only.includes(st.unit));
+  const head = ['판정', '사유', ...cols.slice(1).flatMap(c => c.f && c.f.length > 1 ? [0, 1].map(j => { const nm = c.h.replace(' B→P', ''), y = j ? d.planLabel : d.baseLabel; return nm.startsWith('(참고) ') ? '(참고) ' + y + ' ' + nm.slice(5) : y + ' ' + nm; }) : [headName(c.h)])];
+  const rows = (st.view || []).map(r => {
+    const sevText = r.ev.na || [r.ev.sev1 && '최우선 점검', r.ev.sev2 && '점검', r.ev.sev3 && '추세 점검'].filter(Boolean).join(', ') || '정상';
+    const out = [sevText, r.ev.reasons.join(' / ')];
+    for (const c of cols.slice(1)){
+      if (c.f && c.f.length > 1){ const k = c.k; out.push(r.agg.base[k] ?? null, r.agg.plan[k] ?? null); }
+      else { const v = c.v(r); out.push(v == null || (typeof v === 'number' && !isFinite(v)) ? null : v); }
+    }
+    return out;
+  });
+  const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
+  const pctCols = head.map((h, i) => /증가율|비용율|%|변화/.test(h) ? i : -1).filter(i => i >= 0);
+  for (let R = 1; R <= rows.length; R++) for (const C of pctCols){ const c = ws[XLSX.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = '0.0%'; }
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '점검결과');
+  XLSX.writeFile(wb, `사업계획점검_${{minor: '소분류', major: '대분류', ch: '채널'}[st.unit]}.xlsx`);
+}
+
+// ---------- 이벤트 ----------
+let pasteTarget = null;
+$('paste').addEventListener('click', () => $('paste').focus());
+document.addEventListener('paste', e => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement && document.activeElement.tagName)) return;
+  const raw = e.clipboardData.getData('text/plain');
+  if (!raw.trim()) return;
+  e.preventDefault();
+  load(async () => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}], '붙여넣기');
+});
+const drop = $('drop');
+const takeFile = f => { if (f) load(() => fileSheets(f), f.name); };
+drop.onclick = () => $('file').click();
+$('file').onchange = e => { takeFile(e.target.files[0]); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => takeFile(e.dataTransfer.files[0]));
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+$('clearData').onclick = async () => { if (!confirm('저장된 계획 자료를 지울까요?')) return; await dbClear(); st.data = null; st.selected = null; showInfo(); $('loadMsg').replaceChildren(); render(); };
+$('unit').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  st.unit = b.dataset.v; st.selected = null;
+  [...$('unit').children].forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+$('fSev').onchange = () => { st.sevFilter = $('fSev').value; render(); };
+$('fCh').onchange = () => { refreshFilters(); st.selected = null; render(); };
+$('fMajor').onchange = () => { st.selected = null; render(); };
+$('fQ').oninput = () => render();
+$('save').onclick = () => exportXlsx();
+(async () => { const d = await dbGet(); if (d && Array.isArray(d.items)){ st.data = d; showInfo(); refreshFilters(); render(); } })();
+</script>
+</body>
+</html>
