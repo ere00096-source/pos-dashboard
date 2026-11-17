@@ -51,6 +51,14 @@ td.lab{color:var(--sub)}
 tr.amt td.lab{color:var(--ink);font-weight:700}
 .neg{color:var(--err)}
 .summary{max-width:960px}
+.diags{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:12px}
+.diag{border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.diag .dh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.diag .dh b{font-size:14px}
+.diag .dh span{color:var(--sub);font-size:12px}
+.diag .dh button{margin-left:auto;padding:4px 10px;font-size:12px}
+.diag pre{margin:0;white-space:pre-wrap;word-break:keep-all;font:inherit;font-size:13px;line-height:1.6}
+@media(max-width:640px){.diags{grid-template-columns:1fr}}
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 @media(max-width:900px){.inputs{grid-template-columns:1fr}main{padding:16px 16px 48px}header{padding:0 16px}}
 </style>
@@ -84,7 +92,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
 
     <div class="card">
       <h2>결과뷰 1 · 요약</h2>
-      <div class="filters"><label>팀<select id="sTeam"></select></label><label>채널<select id="sCh"></select></label></div>
+      <div class="filters"><label>팀<select id="sTeam"></select></label><label>채널<select id="sCh"></select></label><button class="sec" id="copySum">전체 복사</button></div>
       <div class="tbl summary"><table id="sumTable"></table></div>
       <p class="sub" style="margin:8px 0 0">진척율 = 現 실적 ÷ Rolling. 비용율 = 비용 ÷ 총매출, 원가율 = 변동원가 ÷ 총매출, 공헌이익율 = 공헌이익 ÷ 총매출.</p>
     </div>
@@ -96,10 +104,21 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
         <label>채널<select id="dCh"></select></label>
         <label>대카테고리<select id="dMajor"></select></label>
         <label>소카테고리<select id="dMinor"></select></label>
-        <button class="sec" id="save">엑셀로 저장</button>
+        <button class="sec" id="copyDet">전체 복사</button>
       </div>
       <div class="tbl"><table id="detTable"></table></div>
       <p class="sub" style="margin:8px 0 0">예측 = 실적 값이에요. gap = 예측 − Rolling (금액은 원, 비율은 %p). 매출비중 = 해당 카테고리 총매출 ÷ 그 채널 전체 총매출.</p>
+    </div>
+
+    <div class="card">
+      <h2>결과뷰 3 · 채널별 진단</h2>
+      <div class="filters">
+        <label>팀<select id="gTeam"></select></label>
+        <label>채널<select id="gCh"></select></label>
+        <button class="sec" id="copyDiag">전체 복사</button>
+      </div>
+      <div class="diags" id="diags"></div>
+      <p class="sub" style="margin:10px 0 0">부족 = 진척율 &lt; 기대진척율. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요 (율 변화: 실적 매출비중 × SKU 율 변화 / P-MIX: 매출비중 변화 × (SKU 율 − 채널 Rolling 율)). 월말 예상 = 실적 ÷ 기대진척율.</p>
     </div>
   </div>
 </main>
@@ -154,7 +173,7 @@ async function fileSheets(file){
 // ---------- 양식 해석 ----------
 const MEAS = ['sales', 'dc', 'inc', 'sga', 'cost', 'cogs', 'ship', 'cm'];
 const LABEL = {sales: '총매출', dc: 'DC', inc: '장려금', sga: '판관비', cost: '비용', cogs: '변동원가', ship: '운송비', cm: '공헌이익'};
-const HEAD = {'구분': 'kind', '월': 'month', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor',
+const HEAD = {'구분': 'kind', '월': 'month', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor', 'sku코드': 'sku', 'sku명': 'skuName', '제품명': 'skuName',
   '총매출': 'sales', 'dc': 'dc', '장려금': 'inc', '판관비': 'sga', '비용': 'cost', '변동원가': 'cogs', '운송비': 'ship', '공헌이익': 'cm'};
 function headerMap(row){
   const m = {};
@@ -204,8 +223,8 @@ function parseRaw(sheets){
       const kt = text(r[map.kind]), kind = kindOfRow(kt);
       if (!kind){ if (kt && !/합계|총계/.test(kt)) unknown.set(kt, (unknown.get(kt) || 0) + 1); continue; }
       const g = k => map[k] == null ? '' : text(r[map[k]]);
-      const it = {m: monthLabel(map.month == null ? '' : r[map.month]), route: g('route'), team: g('team'), ch: g('ch') || '(채널 없음)', major: g('major') || '(대카테고리 없음)', minor: g('minor') || '(소카테고리 없음)'};
-      const key = [it.m, it.route, it.team, it.ch, it.major, it.minor].join('\u0001');
+      const it = {m: monthLabel(map.month == null ? '' : r[map.month]), route: g('route'), team: g('team'), ch: g('ch') || '(채널 없음)', major: g('major') || '(대카테고리 없음)', minor: g('minor') || '(소카테고리 없음)', sku: g('sku'), skuName: g('skuName')};
+      const key = [it.m, it.route, it.team, it.ch, it.major, it.minor, it.sku, it.skuName].join('\u0001');
       let cur = items.get(key);
       if (!cur){ cur = {...it, roll: null, alt: null, act: null}; items.set(key, cur); }
       const o = cur[kind] || (cur[kind] = zero());
@@ -234,7 +253,7 @@ function monthRows(){
   const list = st.data.items.filter(i => i.m === st.month);
   const altCh = new Set(list.filter(i => i.alt).map(i => i.ch));
   const Z = zero();
-  return {altCh, rows: list.map(i => ({team: i.team || '-', ch: i.ch, major: i.major, minor: i.minor, R: (altCh.has(i.ch) ? i.alt : i.roll) || Z, A: i.act || Z}))};
+  return {altCh, rows: list.map(i => ({team: i.team || '-', ch: i.ch, major: i.major, minor: i.minor, sku: i.sku || '', skuName: i.skuName || '', R: (altCh.has(i.ch) ? i.alt : i.roll) || Z, A: i.act || Z}))};
 }
 function sum(rows){
   const R = zero(), A = zero();
@@ -274,7 +293,7 @@ function renderDays(rows, altCh){
     inp.type = 'number'; inp.min = 1; inp.max = dim; inp.placeholder = '일';
     inp.value = saved[key] || '';
     const upd = () => { const v = parseInt(inp.value); exp.textContent = v >= 1 && v <= dim ? '기대 ' + fmtPct(v / dim) : '기대 –'; };
-    inp.oninput = () => { const v = parseInt(inp.value); saveDay(key, v >= 1 && v <= dim ? v : null); upd(); };
+    inp.oninput = () => { const v = parseInt(inp.value); saveDay(key, v >= 1 && v <= dim ? v : null); upd(); renderDiag(monthRows().rows); };
     upd();
     lab.append(el('b', ch), el('span', (mNum ? mNum + '/' : '')), inp, el('span', '일까지'), exp);
     box.append(lab);
@@ -363,6 +382,115 @@ function renderDetail(rows){
   t.append(thead, tb);
 }
 
+// ---------- 결과뷰 3 · 채널별 진단 ----------
+const COMP = [['dc', 'DC'], ['inc', '장려금'], ['sga', '판관비']];
+const MIN_EFF = 0.0005; // 채널 비율에 0.05%p 미만 영향은 생략
+const shortName = s => text(s).replace(/^[A-Za-z]{1,3}\d*\.\s*/, '') || text(s);
+const mil = v => Math.round(v / 1e6).toLocaleString('ko-KR') + '백만';
+const money = v => { const a = Math.abs(v); return a >= 1e8 ? (a / 1e8).toFixed(1) + '억' : Math.round(a / 1e4).toLocaleString('ko-KR') + '만원'; };
+function expOf(ch){
+  const day = loadDays()[st.month + '|' + ch], dim = daysInMonth(st.month);
+  return day >= 1 && day <= dim ? {day, exp: day / dim} : null;
+}
+function skuList(cr){
+  const m = new Map();
+  for (const r of cr){
+    const k = [r.major, r.minor, r.sku || r.skuName].join('\u0001');
+    let o = m.get(k);
+    if (!o){ o = {label: r.skuName || r.sku || shortName(r.minor), minor: shortName(r.minor), R: zero(), A: zero()}; m.set(k, o); }
+    for (const x of MEAS){ o.R[x] += r.R[x]; o.A[x] += r.A[x]; }
+  }
+  return [...m.values()];
+}
+// 채널 비율 gap = Σ 실적 매출비중 × SKU 율 변화 [율 변화] + Σ 매출비중 변화 × (SKU 율 − 채널 Rolling 율) [P-MIX]
+function decompose(skus, T, metric, comps){
+  const cR = T.R.sales, cA = T.A.sales, chR = cR ? T.R[metric] / cR : 0;
+  const rateItems = [], mixItems = [];
+  for (const s of skus){
+    const sR = cR ? s.R.sales / cR : 0, sA = cA ? s.A.sales / cA : 0, hasR = s.R.sales > 0, hasA = s.A.sales > 0;
+    if (hasR && hasA){
+      for (const [k, nm] of comps){ const rR = s.R[k] / s.R.sales, rA = s.A[k] / s.A.sales; rateItems.push({s, nm, rR, rA, eff: sA * (rA - rR)}); }
+      const rr = s.R[metric] / s.R.sales;
+      mixItems.push({s, sR, sA, rate: rr, eff: (sA - sR) * (rr - chR)});
+    } else if (hasA){ const ra = s.A[metric] / s.A.sales; mixItems.push({s, sR: 0, sA, rate: ra, eff: sA * (ra - chR)}); }
+    else if (hasR){ const rr = s.R[metric] / s.R.sales; mixItems.push({s, sR, sA: 0, rate: rr, eff: -sR * (rr - chR)}); }
+  }
+  return {rateItems, mixItems};
+}
+const topEff = (items, sign) => sign ? items.filter(x => x.eff * sign > 0 && Math.abs(x.eff) >= MIN_EFF).sort((a, b) => Math.abs(b.eff) - Math.abs(a.eff)).slice(0, 3) : [];
+const gapSign = g => fin(g) && Math.abs(g) >= MIN_EFF ? Math.sign(g) : 0;
+const rateLine = x => `${x.s.minor} · ${x.s.label}: ${x.nm}율 ${fmtPct(x.rR)} → ${fmtPct(x.rA)} (채널 영향 ${fmtPp(x.eff)})`;
+const mixLine = (x, nm) => `${x.s.minor} · ${x.s.label}(${nm} ${fmtPct(x.rate)}) 매출비중 ${fmtPct(x.sR)} → ${fmtPct(x.sA)} (채널 영향 ${fmtPp(x.eff)})`;
+function diagnose(rows, ch){
+  const cr = rows.filter(r => r.ch === ch), T = sum(cr), e = expOf(ch), mNum = parseInt(st.month), L = [];
+  const head = `${ch} (${teamOf(rows, ch)})`;
+  const sub = e ? `기준일 ${mNum ? mNum + '/' : ''}${e.day} · 기대진척율 ${fmtPct(e.exp)}` : '기준일 미입력';
+  // ① 매출 진척율 부족 Cat (대카테고리, 괄호에 부족한 소카테고리, Rolling 매출 큰 순)
+  let short = [];
+  if (!e) L.push('① 매출 진척율 부족 Cat: 기준일을 입력하면 판단해요');
+  else {
+    const majors = [...new Set(cr.map(r => r.major))].map(n => { const rs = cr.filter(r => r.major === n); return {name: n, rs, s: sum(rs)}; });
+    short = majors.filter(g => g.s.R.sales > 0 && g.s.A.sales / g.s.R.sales < e.exp).sort((a, b) => b.s.R.sales - a.s.R.sales);
+    L.push('① 매출 진척율 부족 Cat' + (short.length ? '' : ': 없음'));
+    for (const g of short){
+      const mins = [...new Set(g.rs.map(r => r.minor))].map(n => ({name: n, s: sum(g.rs.filter(r => r.minor === n))}))
+        .filter(m => m.s.R.sales > 0 && m.s.A.sales / m.s.R.sales < e.exp).sort((a, b) => b.s.R.sales - a.s.R.sales);
+      L.push(` - ${shortName(g.name)} 진척율 ${fmtPct(g.s.A.sales / g.s.R.sales)} 잔여기간 매출 ${mil(g.s.R.sales - g.s.A.sales)}`
+        + (mins.length ? ` (${mins.map(m => `${shortName(m.name)} ${fmtPct(m.s.A.sales / m.s.R.sales)} 잔여 ${mil(m.s.R.sales - m.s.A.sales)}`).join(', ')})` : ''));
+    }
+  }
+  const skus = skuList(cr);
+  // ② 비용율 Gap
+  const cg = fin(rate(T.A, 'cost')) && fin(rate(T.R, 'cost')) ? rate(T.A, 'cost') - rate(T.R, 'cost') : null;
+  if (cg == null) L.push('② 비용율: 매출이 없어 계산할 수 없어요');
+  else {
+    const parts = COMP.map(([k, nm]) => `${nm} ${fmtPp(rate(T.A, k) - rate(T.R, k))}`).join(', ');
+    L.push(gapSign(cg) ? `② 비용율 ${fmtPp(cg)} Gap 발생 (${parts})` : `② 비용율 Gap 없음 (${fmtPp(cg)}; ${parts})`);
+    const d = decompose(skus, T, 'cost', COMP), sg = gapSign(cg);
+    topEff(d.rateItems, sg).forEach(x => L.push(' - ' + rateLine(x)));
+    topEff(d.mixItems, sg).forEach(x => L.push(' - P-MIX: ' + mixLine(x, '비용율')));
+  }
+  // ③ 원가율: 원가율이 달라진 SKU / 매출비중 변화로 영향 준 SKU
+  const og = fin(rate(T.A, 'cogs')) && fin(rate(T.R, 'cogs')) ? rate(T.A, 'cogs') - rate(T.R, 'cogs') : null;
+  if (og == null) L.push('③ 원가율: 매출이 없어 계산할 수 없어요');
+  else {
+    const sg = gapSign(og);
+    L.push(`③ 원가율 ${fmtPp(og)} ${sg > 0 ? '증가' : sg < 0 ? '감소' : '(변화 없음)'}`);
+    if (sg){
+      const d = decompose(skus, T, 'cogs', [['cogs', '원가']]);
+      const r3 = topEff(d.rateItems, sg), m3 = topEff(d.mixItems, sg);
+      L.push(' - 원가율이 달라진 SKU' + (r3.length ? '' : ': 없음'));
+      r3.forEach(x => L.push('   · ' + rateLine(x)));
+      L.push(' - P-MIX(매출비중 변화)로 영향 준 SKU' + (m3.length ? '' : ': 없음'));
+      m3.forEach(x => L.push('   · ' + mixLine(x, '원가율')));
+    }
+  }
+  // ④ 공헌이익 진척율 점검
+  L.push('④ 공헌이익 진척율 점검');
+  const cmProg = T.R.cm ? T.A.cm / T.R.cm : null;
+  L.push(` - 공헌이익 진척율 ${fmtPct(cmProg)}` + (e ? ` (기대진척율 ${fmtPct(e.exp)})` : ''));
+  if (e){
+    const dS = T.A.sales / e.exp - T.R.sales, dC = T.A.cm / e.exp - T.R.cm;
+    L.push(` - 현추세 감안시 매출 ${money(dS)} ${dS >= 0 ? '초과' : '부족'} 달성 예상, 공헌이익 ${money(dC)} ${dC >= 0 ? '초과' : '부족'} 예상`);
+    if (short.length) L.push(` - 매출 부족 CAT 달성 필요: ${short.map(g => `${shortName(g.name)}(이익율 ${fmtPct(rate(g.s.R, 'cm'))})`).join(', ')}`);
+  } else L.push(' - 기준일을 입력하면 월말 예상치를 계산해요');
+  return {ch, head, sub, text: `■ ${head} · ${sub}\n` + L.join('\n')};
+}
+function diagTexts(rows){
+  const team = $('gTeam').value, ch = $('gCh').value;
+  return channels(rows.filter(r => (!team || r.team === team) && (!ch || r.ch === ch))).map(c => diagnose(rows, c));
+}
+function renderDiag(rows){
+  const box = $('diags'); box.replaceChildren();
+  for (const d of diagTexts(rows)){
+    const card = el('div', null, 'diag'), h = el('div', null, 'dh'), btn = el('button', '복사', 'sec');
+    btn.onclick = () => copyText(d.text, btn);
+    h.append(el('b', d.head), el('span', d.sub), btn);
+    card.append(h, el('pre', d.text.split('\n').slice(1).join('\n')));
+    box.append(card);
+  }
+}
+
 // ---------- 화면 ----------
 function fillSelect(sel, values, label){
   const cur = sel.value;
@@ -373,7 +501,7 @@ function fillSelect(sel, values, label){
 }
 function refreshFilters(rows){
   const tms = teams(rows);
-  for (const [tSel, cSel] of [['sTeam', 'sCh'], ['dTeam', 'dCh']]){
+  for (const [tSel, cSel] of [['sTeam', 'sCh'], ['dTeam', 'dCh'], ['gTeam', 'gCh']]){
     fillSelect($(tSel), tms, '팀');
     const t = $(tSel).value;
     fillSelect($(cSel), channels(rows.filter(r => !t || r.team === t)), '채널');
@@ -395,7 +523,7 @@ function render(full){
   const {rows, altCh} = monthRows();
   refreshFilters(rows);
   if (full !== false) renderDays(rows, altCh);
-  renderSummary(rows); renderDetail(rows);
+  renderSummary(rows); renderDetail(rows); renderDiag(rows);
 }
 function showInfo(){
   const d = st.data;
@@ -454,27 +582,34 @@ async function load(getSheets, name){
     showMsgs([], [e instanceof UserError ? e.message : `읽지 못했어요: ${e.message}`]);
   } finally { $('busy').classList.add('hide'); }
 }
-function exportXlsx(){
-  if (!st.data) return;
-  const {rows} = monthRows();
-  const blocks = summaryBlocks(rows), a1 = [[`${st.month} 요약`], ['경로세부1', '팀구분', '항목', 'Rolling', '現 실적', '진척율']], f1 = [];
-  for (const b of blocks) for (const d of b.lines){ a1.push([b.chLab, b.teamLab, d.lab, fin(d.r) ? d.r : null, fin(d.a) ? d.a : null, d.amt && fin(d.prog) ? d.prog : null]); f1.push(d.amt); }
-  const ws1 = XLSX.utils.aoa_to_sheet(a1);
-  f1.forEach((amt, i) => { const R = i + 2; [3, 4].forEach(C => { const c = ws1[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = amt ? '#,##0' : '0.0%'; }); const c = ws1[XLSX.utils.encode_cell({r: R, c: 5})]; if (c) c.z = '0.0%'; });
-  const d = detailData(rows);
-  const filt = [$('dMajor').value || '전체 대카테고리', $('dMinor').value || '전체 소카테고리'].join(' · ');
-  const a2 = [[`${st.month} 상세 · ${filt}`], ['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
-  const fmts = [];
-  for (const g of d.groups) for (const ln of g.lines){
-    a2.push([g.ch, g.teamLab, g.name, ln.lab, fin(ln.r) ? ln.r : null, fin(ln.a) ? ln.a : null, ln.share && fin(ln.share[0]) ? ln.share[0] : null, ln.share && fin(ln.share[1]) ? ln.share[1] : null, fin(ln.gap) ? ln.gap : null]);
-    fmts.push(ln.amt);
+// ---------- 복사 ----------
+async function copyText(txt, btn){
+  st.lastCopy = txt;
+  let ok = false;
+  try { await navigator.clipboard.writeText(txt); ok = true; } catch {}
+  if (!ok){
+    const ta = el('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.append(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch {}
+    ta.remove();
   }
-  const ws2 = XLSX.utils.aoa_to_sheet(a2);
-  fmts.forEach((amt, i) => { const R = i + 2; for (let C = 4; C <= 8; C++){ const c = ws2[XLSX.utils.encode_cell({r: R, c: C})]; if (c) c.z = (C === 6 || C === 7) ? '0.0%' : amt ? '#,##0' : '0.0%'; } });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws1, '요약');
-  XLSX.utils.book_append_sheet(wb, ws2, '상세');
-  XLSX.writeFile(wb, `롤링진척점검_${st.month}.xlsx`);
+  if (btn){ const o = btn.dataset.label || btn.textContent; btn.dataset.label = o; btn.textContent = ok ? '복사했어요 ✓' : '복사하지 못했어요'; setTimeout(() => { btn.textContent = o; }, 1500); }
+  return ok;
+}
+const tsv = rows => rows.map(r => r.map(v => String(v ?? '').replace(/[\t\n]/g, ' ')).join('\t')).join('\n');
+function summaryTsv(rows){
+  const out = [['경로세부1', '팀구분', '항목', 'Rolling', '現 실적', '진척율']];
+  for (const b of summaryBlocks(rows)) for (const d of b.lines) out.push([b.chLab, b.teamLab, d.lab, d.amt ? fmtAmt(d.r) : fmtPct(d.r), d.amt ? fmtAmt(d.a) : fmtPct(d.a), d.amt ? fmtPct(d.prog) : '']);
+  return tsv(out);
+}
+function detailTsv(rows){
+  const d = detailData(rows);
+  const out = [['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
+  for (const g of d.groups) for (const ln of g.lines){
+    const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
+    out.push([g.ch, g.teamLab, g.name, ln.lab, f(ln.r), f(ln.a), ln.share ? fmtPct(ln.share[0]) : '', ln.share ? fmtPct(ln.share[1]) : '', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap)]);
+  }
+  return tsv(out);
 }
 
 // ---------- 이벤트 ----------
@@ -497,8 +632,10 @@ window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => e.preventDefault());
 $('clearData').onclick = async () => { if (!confirm('저장된 자료를 지울까요?')) return; await dbClear(); st.data = null; showInfo(); $('loadMsg').replaceChildren(); render(); };
 $('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
-['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor'].forEach(id => { $(id).onchange = () => render(false); });
-$('save').onclick = () => exportXlsx();
+['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor', 'gTeam', 'gCh'].forEach(id => { $(id).onchange = () => render(false); });
+$('copySum').onclick = () => { if (st.data) copyText(summaryTsv(monthRows().rows), $('copySum')); };
+$('copyDet').onclick = () => { if (st.data) copyText(detailTsv(monthRows().rows), $('copyDet')); };
+$('copyDiag').onclick = () => { if (st.data) copyText(diagTexts(monthRows().rows).map(x => x.text).join('\n\n'), $('copyDiag')); };
 (async () => { const d = await dbGet(); if (d && Array.isArray(d.items)){ st.data = d; showInfo(); render(); } })();
 </script>
 </body>
