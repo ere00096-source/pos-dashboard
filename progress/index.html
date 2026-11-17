@@ -446,9 +446,15 @@ function diagnose(rows, ch){
   else {
     const parts = COMP.map(([k, nm]) => `${nm} ${fmtPp(rate(T.A, k) - rate(T.R, k))}`).join(', ');
     L.push(gapSign(cg) ? `② 비용율 ${fmtPp(cg)} Gap 발생 (${parts})` : `② 비용율 Gap 없음 (${fmtPp(cg)}; ${parts})`);
-    const d = decompose(skus, T, 'cost', COMP), sg = gapSign(cg);
-    topEff(d.rateItems, sg).forEach(x => L.push(' - ' + rateLine(x)));
-    topEff(d.mixItems, sg).forEach(x => L.push(' - P-MIX: ' + mixLine(x, '비용율')));
+    // 항목별(DC/장려금/판관비)로 영향 준 SKU를 따로 보여줌
+    for (const [k, nm] of COMP){
+      const g = rate(T.A, k) - rate(T.R, k), sg = gapSign(g);
+      if (!sg) continue;
+      const d = decompose(skus, T, k, [[k, nm]]), r = topEff(d.rateItems, sg), m = topEff(d.mixItems, sg);
+      L.push(` - ${nm}율 ${fmtPp(g)} ${sg > 0 ? '증가' : '감소'}` + (r.length || m.length ? '' : ': 두드러진 SKU 없음'));
+      r.forEach(x => L.push('   · ' + rateLine(x)));
+      m.forEach(x => L.push('   · P-MIX: ' + mixLine(x, nm + '율')));
+    }
   }
   // ③ 원가율: 원가율이 달라진 SKU / 매출비중 변화로 영향 준 SKU
   const og = fin(rate(T.A, 'cogs')) && fin(rate(T.R, 'cogs')) ? rate(T.A, 'cogs') - rate(T.R, 'cogs') : null;
