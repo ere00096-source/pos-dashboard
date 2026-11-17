@@ -81,7 +81,7 @@ tbody tr.sel td{background:var(--pri-soft)!important}
 
   <div class="card">
     <h2>1. 계획 자료 넣기</h2>
-    <p class="need">채널 · 대분류 · 소분류 · 값(총매출, 비용%, 장려금%, DC+반품%, 판관비%) · 기준연도 1~12월 · 계획연도 1~12월 양식이에요. 피벗 표처럼 빈칸은 위 값을 이어받아요. 다시 넣으면 통째로 바뀌어요.</p>
+    <p class="need">채널 · 대분류 · 소분류 · 값(총매출, 매출차감% — 또는 장려금%·DC+반품% 따로, 비용%·판관비% 줄은 있어도 무시) · 기준연도 1~12월 · 계획연도 1~12월 양식이에요. 피벗 표처럼 빈칸은 위 값을 이어받아요. 다시 넣으면 통째로 바뀌어요.</p>
     <div class="inputs">
       <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 연도·제목 행까지 복사해 붙여넣기</span></div>
       <div class="zone" id="drop"><b>엑셀 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
@@ -191,6 +191,7 @@ function pctVal(v){
 }
 function kindOf(v){
   const n = norm(v);
+  if (n.includes('매출차감') || n.includes('차감')) return 'ded';
   if (n.includes('총매출') || n.includes('매출')) return 'sales';
   if (n.includes('장려금')) return 'inc';
   if (n.includes('dc') || n.includes('반품')) return 'dc';
@@ -198,7 +199,7 @@ function kindOf(v){
   if (n.includes('비용')) return 'cost';
   return '';
 }
-const KIND_NAME = {sales: '총매출', inc: '장려금%', dc: 'DC+반품%', sga: '판관비%', cost: '비용%'};
+const KIND_NAME = {sales: '총매출', ded: '매출차감%', inc: '장려금%', dc: 'DC+반품%', sga: '판관비%', cost: '비용%'};
 function parsePlan(sheets){
   for (const sheet of sheets){
     const rows = sheet.rows;
@@ -255,8 +256,8 @@ function parsePlan(sheets){
     const list = [...items.values()];
     const noSales = list.filter(it => !it.base.sales && !it.plan.sales).length;
     if (noSales) warnings.push(`총매출 줄이 없는 항목 ${noSales}개는 매출 0으로 봐요.`);
-    const noChk = list.filter(it => !it.base.inc && !it.base.dc && !it.plan.inc && !it.plan.dc).length;
-    if (noChk) warnings.push(`장려금%·DC+반품% 줄이 없는 항목 ${noChk}개는 "비용% − 판관비%"로 매출차감율을 계산해요.`);
+    const noChk = list.filter(it => ['base', 'plan'].some(y => !it[y].ded && !it[y].inc && !it[y].dc)).length;
+    if (noChk) warnings.push(`매출차감% 줄이 없는 항목 ${noChk}개는 "비용% − 판관비%"로 매출차감율을 계산해요 (둘 다 없으면 0%).`);
     if (unknownKinds.size) warnings.push(`모르는 값 이름은 건너뛰었어요: ${[...unknownKinds].slice(0, 5).join(', ')}`);
     return {items: list, baseLabel: label(baseY), planLabel: label(planY), sheet: sheet.name, warnings, errors};
   }
@@ -275,11 +276,12 @@ function aggregate(items){
       for (let m = 0; m < 12; m++){
         const s = (d.sales && d.sales[m]) || 0;
         S[m] += s;
-        const vi = d.inc && d.inc[m], vd = d.dc && d.dc[m], vs = d.sga && d.sga[m], vc = d.cost && d.cost[m];
+        const vi = d.inc && d.inc[m], vd = d.dc && d.dc[m], vs = d.sga && d.sga[m], vc = d.cost && d.cost[m], vx = d.ded && d.ded[m];
         inc[m] += s * (vi || 0); dc[m] += s * (vd || 0); sga[m] += s * (vs || 0);
         const c = vc != null ? vc : (vi || 0) + (vd || 0) + (vs || 0);
         cost[m] += s * c;
-        chk[m] += s * (vi != null || vd != null ? (vi || 0) + (vd || 0) : (vc || 0) - (vs || 0));
+        // 매출차감% 줄이 있으면 그대로, 없으면 장려금%+DC+반품%, 그것도 없으면 비용%−판관비%
+        chk[m] += s * (vx != null ? vx : vi != null || vd != null ? (vi || 0) + (vd || 0) : (vc || 0) - (vs || 0));
       }
     }
     const sum = a => a.reduce((x, y) => x + y, 0), tot = sum(S);
