@@ -96,7 +96,7 @@ tbody tr.sel td{background:var(--pri-soft)!important}
     <div class="card">
       <h2>2. 점검 요약 <span class="sub" id="yearInfo"></span></h2>
       <div class="tiles" id="tiles"></div>
-      <p class="sub" style="margin:10px 0 0">점검 비용율 = 장려금% + DC+반품% (판관비는 배부 방식 변경으로 점검에서 제외, 참고로만 표시). 연간 비율은 월 매출 가중 평균이에요.</p>
+      <p class="sub" style="margin:10px 0 0">매출차감율 = 장려금% + DC+반품% (27년은 둘의 구분이 없어 합쳐서 봐요. 판관비는 배부 방식 변경으로 점검에서 제외, 참고로만 표시). 연간 비율은 월 매출 가중 평균이에요.</p>
     </div>
 
     <div class="card">
@@ -118,7 +118,7 @@ tbody tr.sel td{background:var(--pri-soft)!important}
       <div id="dReason"></div>
       <div class="charts">
         <div class="chartbox"><h3>월별 총매출</h3><div class="chartwrap"><canvas id="cSales"></canvas></div></div>
-        <div class="chartbox"><h3>월별 점검 비용율 (장려금% + DC+반품%)</h3><div class="chartwrap"><canvas id="cRate"></canvas></div></div>
+        <div class="chartbox"><h3>월별 매출차감율 (장려금% + DC+반품%)</h3><div class="chartwrap"><canvas id="cRate"></canvas></div></div>
       </div>
       <div class="tbl" style="max-height:none"><table id="dTable"></table></div>
     </div>
@@ -256,7 +256,7 @@ function parsePlan(sheets){
     const noSales = list.filter(it => !it.base.sales && !it.plan.sales).length;
     if (noSales) warnings.push(`총매출 줄이 없는 항목 ${noSales}개는 매출 0으로 봐요.`);
     const noChk = list.filter(it => !it.base.inc && !it.base.dc && !it.plan.inc && !it.plan.dc).length;
-    if (noChk) warnings.push(`장려금%·DC+반품% 줄이 없는 항목 ${noChk}개는 "비용% − 판관비%"로 점검 비용율을 계산해요.`);
+    if (noChk) warnings.push(`장려금%·DC+반품% 줄이 없는 항목 ${noChk}개는 "비용% − 판관비%"로 매출차감율을 계산해요.`);
     if (unknownKinds.size) warnings.push(`모르는 값 이름은 건너뛰었어요: ${[...unknownKinds].slice(0, 5).join(', ')}`);
     return {items: list, baseLabel: label(baseY), planLabel: label(planY), sheet: sheet.name, warnings, errors};
   }
@@ -312,8 +312,8 @@ function evaluate(agg){
   const trendUp = slope != null && slope > 0;
   const sev3 = trendUp && g != null && (g < 0 || g < trendG);
   const reasons = [];
-  if (sev1) reasons.push(`점검 비용율이 ${fmtPct(b.chk)} → ${fmtPct(p.chk)} (${fmtPp(dpp)})로 오르는데 총매출은 ${fmtSigned(g)} 줄어요.`);
-  if (sev2) reasons.push(`총매출 증가율 ${fmtSigned(g)}이 점검 비용율 증가율 ${rg == null ? fmtPp(dpp) : fmtSigned(rg)}보다 낮아요 (비용율 ${fmtPct(b.chk)} → ${fmtPct(p.chk)}).`);
+  if (sev1) reasons.push(`매출차감율이 ${fmtPct(b.chk)} → ${fmtPct(p.chk)} (${fmtPp(dpp)})로 오르는데 총매출은 ${fmtSigned(g)} 줄어요.`);
+  if (sev2) reasons.push(`총매출 증가율 ${fmtSigned(g)}이 매출차감율 증가율 ${rg == null ? fmtPp(dpp) : fmtSigned(rg)}보다 낮아요 (매출차감율 ${fmtPct(b.chk)} → ${fmtPct(p.chk)}).`);
   if (sev3) reasons.push(g < 0 ? `기준연도 월별 매출은 오르는 추세(추세 성장률 ${fmtSigned(trendG)})인데 계획 매출은 ${fmtSigned(g)} 줄어요.` : `기준연도 추세대로면 ${fmtSigned(trendG)} 성장인데 계획은 ${fmtSigned(g)}만 올라요.`);
   const sev = sev1 ? 1 : sev2 ? 2 : sev3 ? 3 : 0;
   const na = b.total <= 0 ? (p.total > 0 ? '기준연도 매출 없음(신규)' : '매출 없음') : '';
@@ -358,12 +358,10 @@ const COLS = [
   {k: 'sp', h: 'P 총매출', v: r => r.agg.plan.total, n: 1, f: fmtNum},
   {k: 'g', h: '매출 증가율', v: r => r.ev.g, n: 1, f: fmtSigned, cls: v => v == null ? '' : v < 0 ? 'down' : ''},
   {k: 'tg', h: 'B 추세 성장률', v: r => r.ev.trendG, n: 1, f: fmtSigned},
-  {k: 'cb', h: 'B 점검비용율', v: r => r.agg.base.chk, n: 1, f: fmtPct},
-  {k: 'cp', h: 'P 점검비용율', v: r => r.agg.plan.chk, n: 1, f: fmtPct},
-  {k: 'dpp', h: '비용율 변화', v: r => r.ev.dpp, n: 1, f: fmtPp, cls: v => v != null && v > EPS ? 'up' : ''},
-  {k: 'rg', h: '비용율 증가율', v: r => r.ev.rg, n: 1, f: fmtSigned, cls: v => v != null && v > 0 ? 'up' : ''},
-  {k: 'inc', h: '장려금% B→P', v: r => r.agg.plan.inc - r.agg.base.inc, n: 1, f: (v, r) => `${fmtPct(r.agg.base.inc)} → ${fmtPct(r.agg.plan.inc)}`},
-  {k: 'dc', h: 'DC+반품% B→P', v: r => r.agg.plan.dc - r.agg.base.dc, n: 1, f: (v, r) => `${fmtPct(r.agg.base.dc)} → ${fmtPct(r.agg.plan.dc)}`},
+  {k: 'cb', h: 'B 매출차감율', v: r => r.agg.base.chk, n: 1, f: fmtPct},
+  {k: 'cp', h: 'P 매출차감율', v: r => r.agg.plan.chk, n: 1, f: fmtPct},
+  {k: 'dpp', h: '매출차감율 변화', v: r => r.ev.dpp, n: 1, f: fmtPp, cls: v => v != null && v > EPS ? 'up' : ''},
+  {k: 'rg', h: '매출차감율 증가율', v: r => r.ev.rg, n: 1, f: fmtSigned, cls: v => v != null && v > 0 ? 'up' : ''},
   {k: 'sga', h: '(참고) 판관비% B→P', v: r => r.agg.plan.sga - r.agg.base.sga, n: 1, f: (v, r) => `${fmtPct(r.agg.base.sga)} → ${fmtPct(r.agg.plan.sga)}`},
   {k: 'cost', h: '(참고) 비용% B→P', v: r => r.agg.plan.cost - r.agg.base.cost, n: 1, f: (v, r) => `${fmtPct(r.agg.base.cost)} → ${fmtPct(r.agg.plan.cost)}`},
 ];
@@ -401,12 +399,12 @@ function render(){
     tiles.append(t);
   };
   const unitName = {minor: '소분류', major: '대분류', ch: '채널'}[st.unit];
-  tile('🔴 최우선 점검', cnt(1), '비용율↑ · 매출↓', '1');
-  tile('🟠 점검', cnt(2), '매출 증가율 < 비용율 증가율', '2');
+  tile('🔴 최우선 점검', cnt(1), '매출차감율↑ · 매출↓', '1');
+  tile('🟠 점검', cnt(2), '매출 증가율 < 매출차감율 증가율', '2');
   tile('🟡 추세 점검', cnt(3), `${d.baseLabel} 상승 추세 대비 계획 부진`, '3');
   tile('점검 항목', all.length, `${unitName} 기준`, null);
   tile('총매출 증가율', fmtSigned(tot.g), `${fmtNum(totAgg.base.total)} → ${fmtNum(totAgg.plan.total)}`, null);
-  tile('점검 비용율', fmtPp(tot.dpp), `${fmtPct(totAgg.base.chk)} → ${fmtPct(totAgg.plan.chk)}`, null);
+  tile('매출차감율', fmtPp(tot.dpp), `${fmtPct(totAgg.base.chk)} → ${fmtPct(totAgg.plan.chk)}`, null);
   // 목록
   const rows = all.filter(passSev);
   const cols = COLS.filter(c => !c.only || c.only.includes(st.unit));
@@ -488,7 +486,7 @@ function renderDetail(r){
   addRow(`${d.baseLabel} 총매출`, b.S, b.total, fmtNum);
   addRow(`${d.planLabel} 총매출`, p.S, p.total, fmtNum);
   addRow('매출 증가율', p.S.map((v, i) => b.S[i] ? v / b.S[i] - 1 : null), r.ev.g, fmtSigned);
-  for (const [k, n] of [['chk', '점검 비용율'], ['inc', '장려금%'], ['dc', 'DC+반품%'], ['sga', '(참고) 판관비%'], ['cost', '(참고) 비용%']]){
+  for (const [k, n] of [['chk', '매출차감율'], ['sga', '(참고) 판관비%'], ['cost', '(참고) 비용%']]){
     addRow(`${d.baseLabel} ${n}`, b.monthly[k], b[k], fmtPct);
     addRow(`${d.planLabel} ${n}`, p.monthly[k], p[k], fmtPct);
   }
@@ -551,7 +549,7 @@ function exportXlsx(){
     return out;
   });
   const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
-  const pctCols = head.map((h, i) => /증가율|비용율|%|변화/.test(h) ? i : -1).filter(i => i >= 0);
+  const pctCols = head.map((h, i) => /증가율|차감율|%|변화/.test(h) ? i : -1).filter(i => i >= 0);
   for (let R = 1; R <= rows.length; R++) for (const C of pctCols){ const c = ws[XLSX.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = '0.0%'; }
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '점검결과');
   XLSX.writeFile(wb, `사업계획점검_${{minor: '소분류', major: '대분류', ch: '채널'}[st.unit]}.xlsx`);
