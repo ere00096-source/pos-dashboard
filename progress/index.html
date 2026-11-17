@@ -397,7 +397,7 @@ function skuList(cr){
   for (const r of cr){
     const k = [r.major, r.minor, r.sku || r.skuName].join('\u0001');
     let o = m.get(k);
-    if (!o){ o = {label: r.skuName || r.sku || shortName(r.minor), minor: shortName(r.minor), R: zero(), A: zero()}; m.set(k, o); }
+    if (!o){ const mn = shortName(r.minor), lb = r.skuName || r.sku || ''; o = {name: lb && lb !== mn && lb !== r.minor ? `${mn} · ${lb}` : mn, R: zero(), A: zero()}; m.set(k, o); }
     for (const x of MEAS){ o.R[x] += r.R[x]; o.A[x] += r.A[x]; }
   }
   return [...m.values()];
@@ -411,16 +411,16 @@ function decompose(skus, T, metric, comps){
     if (hasR && hasA){
       for (const [k, nm] of comps){ const rR = s.R[k] / s.R.sales, rA = s.A[k] / s.A.sales; rateItems.push({s, nm, rR, rA, eff: sA * (rA - rR)}); }
       const rr = s.R[metric] / s.R.sales;
-      mixItems.push({s, sR, sA, rate: rr, eff: (sA - sR) * (rr - chR)});
-    } else if (hasA){ const ra = s.A[metric] / s.A.sales; mixItems.push({s, sR: 0, sA, rate: ra, eff: sA * (ra - chR)}); }
-    else if (hasR){ const rr = s.R[metric] / s.R.sales; mixItems.push({s, sR, sA: 0, rate: rr, eff: -sR * (rr - chR)}); }
+      mixItems.push({s, sR, sA, rate: rr, chR, eff: (sA - sR) * (rr - chR)});
+    } else if (hasA){ const ra = s.A[metric] / s.A.sales; mixItems.push({s, sR: 0, sA, rate: ra, chR, eff: sA * (ra - chR)}); }
+    else if (hasR){ const rr = s.R[metric] / s.R.sales; mixItems.push({s, sR, sA: 0, rate: rr, chR, eff: -sR * (rr - chR)}); }
   }
   return {rateItems, mixItems};
 }
 const topEff = (items, sign) => sign ? items.filter(x => x.eff * sign > 0 && Math.abs(x.eff) >= MIN_EFF).sort((a, b) => Math.abs(b.eff) - Math.abs(a.eff)).slice(0, 3) : [];
 const gapSign = g => fin(g) && Math.abs(g) >= MIN_EFF ? Math.sign(g) : 0;
-const rateLine = x => `${x.s.minor} · ${x.s.label}: ${x.nm}율 ${fmtPct(x.rR)} → ${fmtPct(x.rA)} (채널 영향 ${fmtPp(x.eff)})`;
-const mixLine = (x, nm) => `${x.s.minor} · ${x.s.label}(${nm} ${fmtPct(x.rate)}) 매출비중 ${fmtPct(x.sR)} → ${fmtPct(x.sA)} (채널 영향 ${fmtPp(x.eff)})`;
+const rateLine = x => `${x.s.name}: ${x.nm}율 ${fmtPct(x.rR)} → ${fmtPct(x.rA)} (채널 영향 ${fmtPp(x.eff)})`;
+const mixLine = (x, nm) => `${x.s.name}(${nm} ${fmtPct(x.rate)}, 채널 Rolling ${nm} ${fmtPct(x.chR)}) 매출비중 ${fmtPct(x.sR)} → ${fmtPct(x.sA)} (채널 영향 ${fmtPp(x.eff)})`;
 function diagnose(rows, ch){
   const cr = rows.filter(r => r.ch === ch), T = sum(cr), e = expOf(ch), mNum = parseInt(st.month), L = [];
   const head = `${ch} (${teamOf(rows, ch)})`;
