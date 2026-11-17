@@ -59,6 +59,9 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
 .diag .dh button{margin-left:auto;padding:4px 10px;font-size:12px}
 .diag pre{margin:0;white-space:pre-wrap;word-break:keep-all;font:inherit;font-size:13px;line-height:1.6}
 @media(max-width:640px){.diags{grid-template-columns:1fr}}
+.pr td input[type=date]{padding:3px 5px;border:1px solid var(--line);border-radius:5px;font:inherit;font-size:12px}
+.pr td.need{color:var(--warn)}
+.pr td.exp{color:var(--pri);font-weight:700}
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 @media(max-width:900px){.inputs{grid-template-columns:1fr}main{padding:16px 16px 48px}header{padding:0 16px}}
 </style>
@@ -79,6 +82,24 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
     <p id="busy" class="sub hide" style="margin-top:12px">읽는 중이에요...</p>
     <div id="loadMsg"></div>
     <div class="actions" style="margin-top:10px"><span class="sub" id="dataInfo">아직 자료가 없어요.</span><button class="sec hide" id="clearData">자료 지우기</button></div>
+  </div>
+
+  <div class="card" id="promoCard">
+    <h2>프로모션 파일 · 행사 물량</h2>
+    <p class="need">LV3명(채널) · 제품코드 · 제품명과 정상가 / 행사1차 / 행사2차의 판매수량(월) 열이 있는 프로모션 파일이에요. 물량(판매수량) 비중만 사용해요. 다시 넣으면 통째로 바뀌어요.</p>
+    <div class="inputs">
+      <div class="zone" id="pPaste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>프로모션 파일을 제목 행까지 복사해 붙여넣기</span></div>
+      <div class="zone" id="pDrop"><b>프로모션 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
+    </div>
+    <input type="file" id="pFile" class="hide" accept=".xlsx,.xlsm,.xls,.csv,.txt,.tsv">
+    <div id="pMsg"></div>
+    <div class="actions" style="margin-top:10px"><span class="sub" id="pInfo">아직 프로모션 파일이 없어요.</span><button class="sec hide" id="pClear">프로모션 지우기</button></div>
+    <div id="pBoard" class="hide" style="margin-top:14px">
+      <div class="tbl pr"><table id="pTable"></table></div>
+      <p class="sub" style="margin:8px 0 0">채널마다 행사 1차 · 2차 기간을 입력해 주세요 (이 브라우저에 저장돼요). 기간에 들지 않는 날은 정상가 기간으로 봐요. 물량 기준 기대진척율 = 기준일까지 팔렸어야 할 수량 ÷ 월 전체 수량 (각 기간 수량을 그 기간 일수에 고르게 나눠서 계산). 기준일은 아래 '채널별 기준일'에서 입력한 값을 써요.</p>
+      <div class="filters" style="margin:14px 0 8px"><label>품목 보기<select id="pCh"></select></label></div>
+      <div class="tbl" id="pItemsBox"><table id="pItems"></table></div>
+    </div>
   </div>
 
   <div id="board" class="hide">
@@ -246,7 +267,7 @@ function parseRaw(sheets){
 }
 
 // ---------- 계산 ----------
-const st = {data: null, month: null};
+const st = {data: null, month: null, promo: null};
 function monthsOf(d){ return [...new Set(d.items.map(i => i.m))].sort((a, b) => (parseInt(a) || 99) - (parseInt(b) || 99) || ko(a, b)); }
 // 그 달 자료: 채널에 Rolling(변형)이 있으면 그 채널은 변형 값을 Rolling으로 사용
 function monthRows(){
@@ -293,7 +314,7 @@ function renderDays(rows, altCh){
     inp.type = 'number'; inp.min = 1; inp.max = dim; inp.placeholder = '일';
     inp.value = saved[key] || '';
     const upd = () => { const v = parseInt(inp.value); exp.textContent = v >= 1 && v <= dim ? '기대 ' + fmtPct(v / dim) : '기대 –'; };
-    inp.oninput = () => { const v = parseInt(inp.value); saveDay(key, v >= 1 && v <= dim ? v : null); upd(); renderDiag(monthRows().rows); };
+    inp.oninput = () => { const v = parseInt(inp.value); saveDay(key, v >= 1 && v <= dim ? v : null); upd(); renderDiag(monthRows().rows); if (st.promo) renderPromo(); };
     upd();
     lab.append(el('b', ch), el('span', (mNum ? mNum + '/' : '')), inp, el('span', '일까지'), exp);
     box.append(lab);
@@ -534,6 +555,7 @@ function render(full){
   refreshFilters(rows);
   if (full !== false) renderDays(rows, altCh);
   renderSummary(rows); renderDetail(rows); renderDiag(rows);
+  if (st.promo) renderPromo();
 }
 function showInfo(){
   const d = st.data;
@@ -575,6 +597,9 @@ function idb(){
 }
 async function dbPut(v){ try { const db = await idb(); await new Promise((res, rej) => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').put(v, 'current'); t.oncomplete = res; t.onerror = () => rej(t.error); }); return true; } catch { return false; } }
 async function dbGet(){ try { const db = await idb(); return await new Promise((res, rej) => { const q = db.transaction('data').objectStore('data').get('current'); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); } catch { return null; } }
+async function dbPutKey(key, v){ try { const db = await idb(); await new Promise((res, rej) => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').put(v, key); t.oncomplete = res; t.onerror = () => rej(t.error); }); return true; } catch { return false; } }
+async function dbGetKey(key){ try { const db = await idb(); return await new Promise((res, rej) => { const q = db.transaction('data').objectStore('data').get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); } catch { return null; } }
+async function dbDelKey(key){ try { const db = await idb(); await new Promise(res => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').delete(key); t.oncomplete = res; t.onerror = res; }); } catch {} }
 async function dbClear(){ try { const db = await idb(); await new Promise(res => { const t = db.transaction('data', 'readwrite'); t.objectStore('data').delete('current'); t.oncomplete = res; t.onerror = res; }); } catch {} }
 
 async function load(getSheets, name){
@@ -622,6 +647,146 @@ function detailTsv(rows){
   return tsv(out);
 }
 
+// ---------- 프로모션 (행사 물량) ----------
+const PERIOD_KEY = 'progress-promo-period-v1';
+function loadPeriods(){ try { return JSON.parse(localStorage.getItem(PERIOD_KEY) || '{}') || {}; } catch { return {}; } }
+function savePeriod(ch, k, v){ try { const d = loadPeriods(); const o = d[ch] || (d[ch] = {}); if (v) o[k] = v; else delete o[k]; if (!Object.keys(o).length) delete d[ch]; localStorage.setItem(PERIOD_KEY, JSON.stringify(d)); } catch {} }
+function parsePromo(sheets){
+  const warnings = []; let found = false, badNum = 0;
+  const items = [];
+  for (const sh of sheets){
+    const rows = sh.rows; let hi = -1;
+    for (let i = 0; i < Math.min(rows.length, 40); i++){
+      const r = (rows[i] || []).map(norm);
+      if (r.includes('lv3명') && r.filter(v => v === '판매수량(월)').length >= 3){ hi = i; break; }
+    }
+    if (hi < 0) continue;
+    found = true;
+    const h = rows[hi].map(norm), at = n => h.indexOf(n);
+    const qi = h.map((v, i) => v === '판매수량(월)' ? i : -1).filter(i => i >= 0).slice(0, 3);
+    const di = h.map((v, i) => v === '일수' ? i : -1).filter(i => i >= 0).slice(0, 3);
+    const c = {lv3: at('lv3명'), code: at('제품코드'), name: at('제품명'), minor: at('소분류')};
+    for (let i = hi + 1; i < rows.length; i++){
+      const r = rows[i];
+      if (!r || r.every(v => text(v) === '')) continue;
+      const ch = text(r[c.lv3]), code = c.code < 0 ? '' : text(r[c.code]), name = c.name < 0 ? '' : text(r[c.name]);
+      if (!ch || /합계|총계/.test(ch + name)) continue;
+      const q = qi.map(j => { const v = numVal(r[j]); if (v == null) return 0; if (isNaN(v)){ badNum++; return 0; } return v; });
+      const d = di.map(j => { const v = numVal(r[j]); return fin(v) ? v : null; });
+      if (!code && !name && q.every(v => !v)) continue;
+      items.push({ch, code, name, minor: c.minor < 0 ? '' : text(r[c.minor]), q, d});
+    }
+  }
+  if (!found) throw new UserError('프로모션 양식을 찾지 못했어요. LV3명과 판매수량(월) 열(정상가 · 행사1차 · 행사2차)이 있는 제목 행까지 함께 넣어 주세요.');
+  if (!items.length) throw new UserError('프로모션 품목 행이 없어요.');
+  if (badNum) warnings.push(`숫자로 읽지 못한 수량 칸 ${badNum.toLocaleString()}개는 0으로 봤어요.`);
+  return {items, warnings};
+}
+const pChannels = () => [...new Set(st.promo.items.map(i => i.ch))].sort(ko);
+// 프로모션 LV3명 ↔ 진척 RAW 경로세부1 (예: 롯데마트 ↔ C2.롯데마트)
+function matchCh(lv3){
+  if (!st.data) return null;
+  const chs = [...new Set(st.data.items.map(i => i.ch))], n = norm(lv3);
+  return chs.find(c => norm(c) === n) || chs.find(c => norm(shortName(c)) === n) || null;
+}
+const ymd = s => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); return m ? {y: +m[1], m: +m[2], d: +m[3]} : null; };
+// 기간 날짜 → 그 달의 일(day) 범위
+function dayRange(s, e, y, m, dim){
+  const a = ymd(s), b = ymd(e);
+  if (!a || !b) return null;
+  const toDay = (x, end) => x.y * 12 + x.m < y * 12 + m ? (end ? 0 : 1) : x.y * 12 + x.m > y * 12 + m ? (end ? dim : dim + 1) : x.d;
+  const from = Math.max(1, toDay(a, false)), to = Math.min(dim, toDay(b, true));
+  return from <= to ? [from, to] : [];
+}
+// 물량 기준 기대진척율: 각 기간 수량을 그 기간 일수에 고르게 나눠 기준일까지 누적
+function promoExp(q, per, day){
+  const any = ymd(per.s1) || ymd(per.s2) || ymd(per.e1) || ymd(per.e2);
+  const total = q[0] + q[1] + q[2];
+  if (!total) return {err: '수량 없음'};
+  if (q[1] && !(per.s1 && per.e1)) return {err: '1차 기간 입력 필요'};
+  if (q[2] && !(per.s2 && per.e2)) return {err: '2차 기간 입력 필요'};
+  if (!day) return {err: '기준일 입력 필요'};
+  const y = any ? any.y : new Date().getFullYear(), m = any ? any.m : parseInt(st.month) || new Date().getMonth() + 1;
+  const dim = new Date(y, m, 0).getDate();
+  if (day > dim) return {err: '기준일 확인'};
+  const P = [null, q[1] ? dayRange(per.s1, per.e1, y, m, dim) : [], q[2] ? dayRange(per.s2, per.e2, y, m, dim) : []];
+  if (q[1] && !P[1].length) return {err: '1차 기간 확인'};
+  if (q[2] && !P[2].length) return {err: '2차 기간 확인'};
+  const inP = (k, d) => P[k] && P[k].length && d >= P[k][0] && d <= P[k][1];
+  let normalDays = 0, normalTo = 0;
+  for (let d = 1; d <= dim; d++) if (!inP(1, d) && !inP(2, d)){ normalDays++; if (d <= day) normalTo++; }
+  const part = k => { const [a, b] = P[k]; return Math.max(0, Math.min(day, b) - a + 1) / (b - a + 1); };
+  let done = 0;
+  if (q[1]) done += q[1] * part(1);
+  if (q[2]) done += q[2] * part(2);
+  if (q[0]) done += q[0] * (normalDays ? normalTo / normalDays : day / dim);
+  return {exp: done / total, dim};
+}
+function renderPromo(){
+  const has = !!st.promo;
+  $('pBoard').classList.toggle('hide', !has);
+  $('pInfo').textContent = has ? `저장된 프로모션: ${st.promo.name} · 품목 ${st.promo.items.length.toLocaleString()}행 · 채널 ${pChannels().length}곳 · ${new Date(st.promo.savedAt).toLocaleString('ko-KR')}` : '아직 프로모션 파일이 없어요.';
+  $('pClear').classList.toggle('hide', !has);
+  if (!has) return;
+  const per = loadPeriods(), days = loadDays(), tb = $('pTable');
+  tb.replaceChildren();
+  const hr = el('tr');
+  ['채널(LV3명)', '진척 채널', '품목', '행사 품목', '정상가 수량', '행사1차 수량', '행사2차 수량', '1차 시작일', '1차 종료일', '2차 시작일', '2차 종료일', '기준일', '물량 기준 기대진척율', '일수 기준 기대진척율']
+    .forEach((h, i) => { const th = el('th', h); if ((i >= 2 && i <= 6) || i >= 11) th.className = 'n'; hr.append(th); });
+  tb.append(hr);
+  for (const ch of pChannels()){
+    const its = st.promo.items.filter(i => i.ch === ch), q = [0, 1, 2].map(k => its.reduce((s, i) => s + i.q[k], 0));
+    const mc = matchCh(ch), p = per[ch] || {}, day = mc ? days[st.month + '|' + mc] : null;
+    const tr = el('tr');
+    const num = v => el('td', fmtAmt(v), 'n');
+    tr.append(el('td', ch), el('td', mc || '–'), num(its.length), num(its.filter(i => i.q[1] || i.q[2]).length), num(q[0]), num(q[1]), num(q[2]));
+    const expTd = el('td', '', 'n'), dimTd = el('td', '', 'n');
+    const upd = () => {
+      const r = promoExp(q, loadPeriods()[ch] || {}, day);
+      expTd.textContent = r.err || fmtPct(r.exp); expTd.className = 'n ' + (r.err ? 'need' : 'exp');
+      const dim = r.dim || daysInMonth(st.month);
+      dimTd.textContent = day ? fmtPct(day / dim) : '–';
+    };
+    for (const k of ['s1', 'e1', 's2', 'e2']){
+      const td = el('td'), inp = el('input'); inp.type = 'date'; inp.value = p[k] || ''; inp.dataset.k = k; inp.dataset.ch = ch;
+      inp.onchange = () => { savePeriod(ch, k, inp.value); upd(); };
+      td.append(inp); tr.append(td);
+    }
+    tr.append(el('td', day ? `${parseInt(st.month) ? parseInt(st.month) + '/' : ''}${day}일` : (mc ? '미입력' : '–'), 'n'), expTd, dimTd);
+    upd(); tb.append(tr);
+  }
+  const sel = $('pCh'), cur = sel.value;
+  sel.replaceChildren(...pChannels().map(c => { const o = el('option', c); o.value = c; return o; }));
+  sel.value = pChannels().includes(cur) ? cur : pChannels()[0];
+  const it = $('pItems'); it.replaceChildren();
+  const h2 = el('tr');
+  ['제품코드', '제품명', '소분류', '정상가 수량', '정상가 일수', '행사1차 수량', '행사1차 일수', '행사2차 수량', '행사2차 일수'].forEach((h, i) => { const th = el('th', h); if (i >= 3) th.className = 'n'; h2.append(th); });
+  it.append(h2);
+  for (const i of st.promo.items.filter(x => x.ch === sel.value)){
+    const tr = el('tr');
+    tr.append(el('td', i.code), el('td', i.name), el('td', i.minor));
+    for (let k = 0; k < 3; k++) tr.append(el('td', fmtAmt(i.q[k]), 'n'), el('td', i.q[k] && i.d[k] != null ? String(i.d[k]) : '–', 'n'));
+    it.append(tr);
+  }
+}
+async function loadPromo(getSheets, name){
+  $('pMsg').replaceChildren();
+  try {
+    const r = parsePromo(await getSheets());
+    st.promo = {items: r.items, name, savedAt: Date.now()};
+    const saved = await dbPutKey('promo', st.promo);
+    const box = $('pMsg');
+    box.append(el('p', `품목 ${r.items.length.toLocaleString()}행을 읽었어요.${saved ? '' : ' 이 브라우저에는 저장하지 못해서 새로고침하면 다시 넣어야 해요.'}`, 'msg ok'));
+    const unmatched = st.data ? pChannels().filter(c => !matchCh(c)) : [];
+    const warns = [...r.warnings, ...(unmatched.length ? [`진척 RAW에서 찾지 못한 채널: ${unmatched.join(', ')} (기준일을 못 가져와요)`] : [])];
+    if (warns.length){ const m = el('div', '참고', 'msg warn'), ul = el('ul'); warns.forEach(w => ul.append(el('li', w))); m.append(ul); box.append(m); }
+    renderPromo();
+  } catch (e) {
+    if (!(e instanceof UserError)) console.error(e);
+    $('pMsg').replaceChildren(el('p', e instanceof UserError ? e.message : `읽지 못했어요: ${e.message}`, 'msg err'));
+  }
+}
+
 // ---------- 이벤트 ----------
 $('paste').addEventListener('click', () => $('paste').focus());
 document.addEventListener('paste', e => {
@@ -629,6 +794,7 @@ document.addEventListener('paste', e => {
   const raw = e.clipboardData.getData('text/plain');
   if (!raw.trim()) return;
   e.preventDefault();
+  if (document.activeElement === $('pPaste')){ loadPromo(async () => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}], '붙여넣기'); return; }
   load(async () => [{name: '붙여넣기', rows: parseDelimited(raw, '\t')}], '붙여넣기');
 });
 const drop = $('drop');
@@ -646,7 +812,20 @@ $('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
 $('copySum').onclick = () => { if (st.data) copyText(summaryTsv(monthRows().rows), $('copySum')); };
 $('copyDet').onclick = () => { if (st.data) copyText(detailTsv(monthRows().rows), $('copyDet')); };
 $('copyDiag').onclick = () => { if (st.data) copyText(diagTexts(monthRows().rows).map(x => x.text).join('\n\n'), $('copyDiag')); };
-(async () => { const d = await dbGet(); if (d && Array.isArray(d.items)){ st.data = d; showInfo(); render(); } })();
+$('pPaste').addEventListener('click', () => $('pPaste').focus());
+const pDrop = $('pDrop');
+const takePromo = f => { if (f) loadPromo(() => fileSheets(f), f.name); };
+pDrop.onclick = () => $('pFile').click();
+$('pFile').onchange = e => { takePromo(e.target.files[0]); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => pDrop.addEventListener(t, e => { e.preventDefault(); e.stopPropagation(); pDrop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => pDrop.addEventListener(t, e => { e.preventDefault(); e.stopPropagation(); pDrop.classList.remove('over'); }));
+pDrop.addEventListener('drop', e => takePromo(e.dataTransfer.files[0]));
+$('pClear').onclick = async () => { if (!confirm('저장된 프로모션 파일을 지울까요? (입력한 행사 기간은 남아 있어요)')) return; await dbDelKey('promo'); st.promo = null; $('pMsg').replaceChildren(); renderPromo(); };
+$('pCh').onchange = () => renderPromo();
+(async () => {
+  const d = await dbGet(); if (d && Array.isArray(d.items)){ st.data = d; showInfo(); render(); }
+  const pr = await dbGetKey('promo'); if (pr && Array.isArray(pr.items)){ st.promo = pr; renderPromo(); }
+})();
 </script>
 </body>
 </html>
