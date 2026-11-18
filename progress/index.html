@@ -368,7 +368,10 @@ function detailData(rows){
   const by = ma ? 'minor' : 'major', groups = [];
   for (const ch of channels(f)){
     const cf = f.filter(r => r.ch === ch), chTot = sum(rows.filter(r => r.ch === ch)), teamLab = teamOf(rows, ch);
-    for (const n of [...new Set(cf.map(r => r[by]))].sort(ko)) groups.push({ch, teamLab, name: n, chTot, s: sum(cf.filter(r => r[by] === n))});
+    const names = [...new Set(cf.map(r => r[by]))].sort(ko);
+    // 카테고리가 2개 이상이면 맨 위에 전체 합계
+    if (names.length > 1) groups.push({ch, teamLab, name: ma ? `전체 (${shortName(ma)})` : '전체', total: true, chTot, s: sum(cf)});
+    for (const n of names) groups.push({ch, teamLab, name: n, chTot, s: sum(cf.filter(r => r[by] === n))});
   }
   return {by, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
     if (amt){
@@ -389,7 +392,7 @@ function renderDetail(rows){
   if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 9; tr.append(td); tb.append(tr); }
   for (const g of d.groups){
     g.lines.forEach((ln, i) => {
-      const tr = el('tr', null, [i === 0 ? 'gstart' : '', ln.amt ? 'amt' : ''].filter(Boolean).join(' '));
+      const tr = el('tr', null, [i === 0 ? 'gstart' : '', ln.amt ? 'amt' : '', g.total ? 'total' : ''].filter(Boolean).join(' '));
       if (i === 0){ scopeCells(tr, g.ch, g.teamLab, g.lines.length); const td = el('td', g.name, 'grp'); td.rowSpan = g.lines.length; tr.append(td); }
       const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
       tr.append(el('td', ln.lab, 'lab'),
@@ -442,7 +445,7 @@ function decompose(skus, T, metric, comps){
 const topEff = (items, sign) => sign ? items.filter(x => x.eff * sign > 0 && Math.abs(x.eff) >= MIN_EFF).sort((a, b) => Math.abs(b.eff) - Math.abs(a.eff)).slice(0, 3) : [];
 const gapSign = g => fin(g) && Math.abs(g) >= MIN_EFF ? Math.sign(g) : 0;
 const rateLine = x => `${x.s.name}: ${x.nm}율 ${fmtPct(x.rR)} → ${fmtPct(x.rA)} (채널 영향 ${fmtPp(x.eff)})`;
-const mixLine = (x, nm) => `${x.s.name}(${nm} ${fmtPct(x.rate)}, 채널 Rolling ${nm} ${fmtPct(x.chR)}) 매출비중 ${fmtPct(x.sR)} → ${fmtPct(x.sA)} (채널 영향 ${fmtPp(x.eff)})`;
+const mixLine = (x, nm) => `${x.s.name}(${nm} ${fmtPct(x.rate)}) 매출비중 ${fmtPct(x.sR)} → ${fmtPct(x.sA)} (채널 영향 ${fmtPp(x.eff)})`;
 function diagnose(rows, ch){
   const cr = rows.filter(r => r.ch === ch), T = sum(cr), e = expOf(ch), mNum = parseInt(st.month), L = [];
   const head = `${ch} (${teamOf(rows, ch)})`;
