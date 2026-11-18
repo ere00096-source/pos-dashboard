@@ -125,6 +125,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
         <label>채널<select id="dCh"></select></label>
         <label>대카테고리<select id="dMajor"></select></label>
         <label>소카테고리<select id="dMinor"></select></label>
+        <label>제품명<select id="dSku"></select></label>
         <button class="sec" id="copyDet">전체 복사</button>
       </div>
       <div class="tbl"><table id="detTable"></table></div>
@@ -362,16 +363,28 @@ function renderSummary(rows){
 // ---------- 결과뷰 2 ----------
 const DET_ROWS = [['총매출', 'sales', true], ['비용%', 'cost'], ['DC%', 'dc'], ['장려금%', 'inc'], ['판관비%', 'sga'], ['원가%', 'cogs'], ['운송비%', 'ship'], ['공헌이익', 'cm', true], ['공헌이익%', 'cm']];
 // 채널마다 × 대카테고리(대카테고리를 고르면 소카테고리) 묶음. 매출비중 = 카테고리 매출 ÷ 그 채널 전체 매출
+const skuKey = r => r.sku || r.skuName || '(제품 없음)';
+// 제품 키 → 표시 이름 (같은 이름이 다른 코드로 있으면 코드를 붙임)
+function skuNames(rs){
+  const m = new Map();
+  for (const r of rs) if (!m.has(skuKey(r))) m.set(skuKey(r), r.skuName || r.sku || '(제품 없음)');
+  const cnt = {};
+  for (const v of m.values()) cnt[v] = (cnt[v] || 0) + 1;
+  for (const [k, v] of m) if (cnt[v] > 1 && k !== v) m.set(k, `${v} (${k})`);
+  return m;
+}
 function detailData(rows){
-  const sc = scoped(rows, 'dTeam', 'dCh'), ma = $('dMajor').value, mi = $('dMinor').value;
-  const f = sc.f.filter(r => (!ma || r.major === ma) && (!mi || r.minor === mi));
-  const by = ma ? 'minor' : 'major', groups = [];
+  const sc = scoped(rows, 'dTeam', 'dCh'), ma = $('dMajor').value, mi = $('dMinor').value, sk = $('dSku').value;
+  const f = sc.f.filter(r => (!ma || r.major === ma) && (!mi || r.minor === mi) && (!sk || skuKey(r) === sk));
+  // 소카테고리나 제품을 고르면 제품 단위, 대카테고리를 고르면 소카테고리 단위
+  const by = mi || sk ? 'sku' : ma ? 'minor' : 'major', groups = [];
+  const keyOf = r => by === 'sku' ? skuKey(r) : r[by], nameOf = by === 'sku' ? skuNames(f) : null;
   for (const ch of channels(f)){
     const cf = f.filter(r => r.ch === ch), chTot = sum(rows.filter(r => r.ch === ch)), teamLab = teamOf(rows, ch);
-    const names = [...new Set(cf.map(r => r[by]))].sort(ko);
-    // 카테고리가 2개 이상이면 맨 위에 전체 합계
-    if (names.length > 1) groups.push({ch, teamLab, name: ma ? `전체 (${shortName(ma)})` : '전체', total: true, chTot, s: sum(cf)});
-    for (const n of names) groups.push({ch, teamLab, name: n, chTot, s: sum(cf.filter(r => r[by] === n))});
+    const keys = [...new Set(cf.map(keyOf))].sort((a, b) => nameOf ? ko(nameOf.get(a), nameOf.get(b)) : ko(a, b));
+    // 2개 이상이면 맨 위에 전체 합계
+    if (keys.length > 1) groups.push({ch, teamLab, name: mi ? `전체 (${shortName(mi)})` : ma ? `전체 (${shortName(ma)})` : '전체', total: true, chTot, s: sum(cf)});
+    for (const n of keys) groups.push({ch, teamLab, name: nameOf ? nameOf.get(n) : n, chTot, s: sum(cf.filter(r => keyOf(r) === n))});
   }
   return {by, groups: groups.map(g => ({...g, lines: DET_ROWS.map(([lab, k, amt]) => {
     if (amt){
@@ -386,7 +399,7 @@ function renderDetail(rows){
   const t = $('detTable'); t.replaceChildren();
   const d = detailData(rows);
   const thead = el('thead'), hr = el('tr');
-  [['경로세부1', ''], ['팀구분', ''], [d.by === 'major' ? '대카테고리' : '소카테고리', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  [['경로세부1', ''], ['팀구분', ''], [d.by === 'major' ? '대카테고리' : d.by === 'minor' ? '소카테고리' : '제품명', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
   thead.append(hr);
   const tb = el('tbody');
   if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 9; tr.append(td); tb.append(tr); }
@@ -545,6 +558,10 @@ function refreshFilters(rows){
   fillSelect($('dMajor'), [...new Set(r1.map(r => r.major))].sort(ko), '대카테고리');
   const ma = $('dMajor').value;
   fillSelect($('dMinor'), [...new Set(r1.filter(r => !ma || r.major === ma).map(r => r.minor))].sort(ko), '소카테고리');
+  const mi = $('dMinor').value, r2 = r1.filter(r => (!ma || r.major === ma) && (!mi || r.minor === mi)), nm = skuNames(r2), sSel = $('dSku'), cur = sSel.value;
+  sSel.replaceChildren(el('option', '전체 제품명')); sSel.options[0].value = '';
+  [...nm].sort((a, b) => ko(a[1], b[1])).forEach(([k, v]) => { const o = el('option', v); o.value = k; sSel.append(o); });
+  sSel.value = nm.has(cur) ? cur : '';
 }
 function render(full){
   $('board').classList.toggle('hide', !st.data);
@@ -643,7 +660,7 @@ function summaryTsv(rows){
 }
 function detailTsv(rows){
   const d = detailData(rows);
-  const out = [['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : '소카테고리', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
+  const out = [['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : d.by === 'minor' ? '소카테고리' : '제품명', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
   for (const g of d.groups) for (const ln of g.lines){
     const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
     out.push([g.ch, g.teamLab, g.name, ln.lab, f(ln.r), f(ln.a), ln.share ? fmtPct(ln.share[0]) : '', ln.share ? fmtPct(ln.share[1]) : '', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap)]);
@@ -812,7 +829,7 @@ window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => e.preventDefault());
 $('clearData').onclick = async () => { if (!confirm('저장된 자료를 지울까요?')) return; await dbClear(); st.data = null; showInfo(); $('loadMsg').replaceChildren(); render(); };
 $('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
-['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor', 'gTeam', 'gCh'].forEach(id => { $(id).onchange = () => render(false); });
+['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor', 'dSku', 'gTeam', 'gCh'].forEach(id => { $(id).onchange = () => render(false); });
 $('copySum').onclick = () => { if (st.data) copyText(summaryTsv(monthRows().rows), $('copySum')); };
 $('copyDet').onclick = () => { if (st.data) copyText(detailTsv(monthRows().rows), $('copyDet')); };
 $('copyDiag').onclick = () => { if (st.data) copyText(diagTexts(monthRows().rows).map(x => x.text).join('\n\n'), $('copyDiag')); };
