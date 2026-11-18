@@ -141,7 +141,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
         <button class="sec" id="copyDiag">전체 복사</button>
       </div>
       <div class="diags" id="diags"></div>
-      <p class="sub" style="margin:10px 0 0">팀 요약: 팀 기대진척율 = 채널 기대진척율을 Rolling 매출로 가중평균. 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산). 영향 큰 채널 = 그 채널의 율 변화 + 매출비중 변화 영향 합. 채널을 고르면 팀 요약은 숨겨요.<br>부족 = 진척율 &lt; 기대진척율. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요. 월말 예상 = 실적 ÷ 기대진척율.<br>· 율 변화 줄의 채널 영향 = 그 품목의 실적 매출비중 × (실적 율 − Rolling 율) &nbsp;예) 실적 DC율 − Rolling DC율<br>· P-MIX 줄의 채널 영향 = 매출비중 변화(실적 − Rolling) × (그 품목 율 − 채널 Rolling 율)<br>· 모든 품목의 두 영향을 더하면 채널 율 gap과 같아요.</p>
+      <p class="sub" style="margin:10px 0 0">팀 요약: 팀 기대진척율 = 채널 기대진척율을 Rolling 매출로 가중평균. 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산). 부족 CAT는 부족분 큰 순으로 전체 부족분의 80%를 설명할 때까지만 보여줘요. 영향 큰 채널 = 그 채널의 율 변화 + 매출비중 변화 영향 합. 채널을 고르면 팀 요약은 숨겨요.<br>부족 = 진척율 &lt; 기대진척율. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요. 월말 예상 = 실적 ÷ 기대진척율.<br>· 율 변화 줄의 채널 영향 = 그 품목의 실적 매출비중 × (실적 율 − Rolling 율) &nbsp;예) 실적 DC율 − Rolling DC율<br>· P-MIX 줄의 채널 영향 = 매출비중 변화(실적 − Rolling) × (그 품목 율 − 채널 Rolling 율)<br>· 모든 품목의 두 영향을 더하면 채널 율 gap과 같아요.</p>
     </div>
   </div>
 </main>
@@ -424,6 +424,13 @@ function renderDetail(rows){
 // ---------- 결과뷰 3 · 채널별 진단 ----------
 const COMP = [['dc', 'DC'], ['inc', '장려금'], ['sga', '판관비']];
 const MIN_EFF = 0.0005; // 채널 비율에 0.05%p 미만 영향은 생략
+// 값 큰 순으로 정렬해 누적이 합계의 80% 이상이 될 때까지만
+function upTo80(list, val){
+  const s = [...list].sort((a, b) => val(b) - val(a)), tot = s.reduce((x, y) => x + val(y), 0), out = [];
+  let cum = 0;
+  for (const x of s){ if (cum >= 0.8 * tot) break; out.push(x); cum += val(x); }
+  return out;
+}
 const shortName = s => text(s).replace(/^[A-Za-z]{1,3}\d*\.\s*/, '') || text(s);
 const mil = v => Math.round(v / 1e6).toLocaleString('ko-KR') + '백만';
 const money = v => { const a = Math.abs(v); return a >= 1e8 ? (a / 1e8).toFixed(1) + '억' : Math.round(a / 1e4).toLocaleString('ko-KR') + '만원'; };
@@ -469,7 +476,8 @@ function diagnose(rows, ch){
   if (!e) L.push('① 매출 진척율 부족 Cat: 기준일을 입력하면 판단해요');
   else {
     const majors = [...new Set(cr.map(r => r.major))].map(n => { const rs = cr.filter(r => r.major === n); return {name: n, rs, s: sum(rs)}; });
-    short = majors.filter(g => g.s.R.sales > 0 && g.s.A.sales / g.s.R.sales < e.exp).sort((a, b) => b.s.R.sales - a.s.R.sales);
+    // 부족분 = Rolling × 기대진척율 − 실적. 부족분 큰 순으로, 누적이 전체 부족분의 80% 이상이 될 때까지
+    short = upTo80(majors.filter(g => g.s.R.sales > 0 && g.s.A.sales / g.s.R.sales < e.exp).map(g => ({...g, sf: g.s.R.sales * e.exp - g.s.A.sales})), g => g.sf);
     L.push('① 매출 진척율 부족 Cat' + (short.length ? '' : ': 없음'));
     for (const g of short){
       // 잔여 매출 큰 소카테고리부터, 누적이 대카테고리 잔여의 90% 이상이 될 때까지 나열
@@ -541,7 +549,7 @@ function teamDiagnose(rows, team){
     // 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산)
     const gap = new Map();
     for (const c of withE) for (const r of c.cr) gap.set(r.major, (gap.get(r.major) || 0) + r.R.sales * c.e.exp - r.A.sales);
-    const top = [...gap].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const top = upTo80([...gap].filter(([, v]) => v > 0), x => x[1]);
     L.push(' - 부족 CAT(부족액 큰 순): ' + (top.length ? top.map(([n, v]) => `${shortName(n)} ${mil(v)}`).join(', ') : '없음'));
   } else L.push(' - 기준일을 입력하면 부족 채널 · CAT를 보여줘요');
   // ②③ 비용율 · 원가율: 영향 큰 채널 (율 변화 + 매출비중 변화 합)
