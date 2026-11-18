@@ -194,7 +194,7 @@ async function fileSheets(file){
 // ---------- 양식 해석 ----------
 const MEAS = ['sales', 'dc', 'inc', 'sga', 'cost', 'cogs', 'ship', 'cm'];
 const LABEL = {sales: '총매출', dc: 'DC', inc: '장려금', sga: '판관비', cost: '비용', cogs: '변동원가', ship: '운송비', cm: '공헌이익'};
-const HEAD = {'구분': 'kind', '월': 'month', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor', 'sku코드': 'sku', 'sku명': 'skuName', '제품명': 'skuName',
+const HEAD = {'구분': 'kind', '월': 'month', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor', 'sku코드': 'sku', 'sku': 'sku', '제품코드': 'sku', '품목코드': 'sku', '상품코드': 'sku', '자재코드': 'sku', 'sku명': 'skuName', '제품명': 'skuName', '품목명': 'skuName', '상품명': 'skuName', '자재명': 'skuName',
   '총매출': 'sales', 'dc': 'dc', '장려금': 'inc', '판관비': 'sga', '비용': 'cost', '변동원가': 'cogs', '운송비': 'ship', '공헌이익': 'cm'};
 function headerMap(row){
   const m = {};
@@ -238,6 +238,7 @@ function parseRaw(sheets){
     const missing = MEAS.filter(k => map[k] == null);
     if (missing.length) warnings.push(`${sh.name}: ${missing.map(k => LABEL[k]).join(', ')} 열이 없어서 0으로 봤어요.`);
     if (map.major == null) warnings.push(`${sh.name}: 대카테고리 열이 없어요.`);
+    if (map.sku == null && map.skuName == null) warnings.push(`${sh.name}: SKU코드 · SKU명 열을 찾지 못해서 진단 원인은 소카테고리 단위로 계산해요.`);
     for (let i = hi + 1; i < rows.length; i++){
       const r = rows[i];
       if (!r || r.every(v => text(v) === '')) continue;
