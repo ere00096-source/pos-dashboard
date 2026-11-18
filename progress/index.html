@@ -53,6 +53,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
 .summary{max-width:960px}
 .diags{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:12px}
 .diag{border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.diag.team{grid-column:1/-1;background:#f8fafc;border-color:#cfd4dc}
 .diag .dh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .diag .dh b{font-size:14px}
 .diag .dh span{color:var(--sub);font-size:12px}
@@ -133,14 +134,14 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
     </div>
 
     <div class="card">
-      <h2>결과뷰 3 · 채널별 진단</h2>
+      <h2>결과뷰 3 · 팀 · 채널별 진단</h2>
       <div class="filters">
         <label>팀<select id="gTeam"></select></label>
         <label>채널<select id="gCh"></select></label>
         <button class="sec" id="copyDiag">전체 복사</button>
       </div>
       <div class="diags" id="diags"></div>
-      <p class="sub" style="margin:10px 0 0">부족 = 진척율 &lt; 기대진척율. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요. 월말 예상 = 실적 ÷ 기대진척율.<br>· 율 변화 줄의 채널 영향 = 그 품목의 실적 매출비중 × (실적 율 − Rolling 율) &nbsp;예) 실적 DC율 − Rolling DC율<br>· P-MIX 줄의 채널 영향 = 매출비중 변화(실적 − Rolling) × (그 품목 율 − 채널 Rolling 율)<br>· 모든 품목의 두 영향을 더하면 채널 율 gap과 같아요.</p>
+      <p class="sub" style="margin:10px 0 0">팀 요약: 팀 기대진척율 = 채널 기대진척율을 Rolling 매출로 가중평균. 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산). 영향 큰 채널 = 그 채널의 율 변화 + 매출비중 변화 영향 합. 채널을 고르면 팀 요약은 숨겨요.<br>부족 = 진척율 &lt; 기대진척율. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요. 월말 예상 = 실적 ÷ 기대진척율.<br>· 율 변화 줄의 채널 영향 = 그 품목의 실적 매출비중 × (실적 율 − Rolling 율) &nbsp;예) 실적 DC율 − Rolling DC율<br>· P-MIX 줄의 채널 영향 = 매출비중 변화(실적 − Rolling) × (그 품목 율 − 채널 Rolling 율)<br>· 모든 품목의 두 영향을 더하면 채널 율 gap과 같아요.</p>
     </div>
   </div>
 </main>
@@ -524,14 +525,67 @@ function diagnose(rows, ch){
   } else L.push(' - 기준일을 입력하면 월말 예상치를 계산해요');
   return {ch, head, sub, text: `■ ${head} · ${sub}\n` + L.join('\n')};
 }
+// 팀 요약 진단: 채널별 진단의 핵심만
+function teamDiagnose(rows, team){
+  const tr = rows.filter(r => r.team === team), T = sum(tr), chs = channels(tr), L = [];
+  const chS = chs.map(ch => { const cr = tr.filter(r => r.ch === ch); return {ch, name: ch, cr, e: expOf(ch), ...sum(cr)}; });
+  const withE = chS.filter(c => c.e && c.R.sales > 0), noE = chS.filter(c => !c.e).map(c => c.ch);
+  const wR = withE.reduce((s, c) => s + c.R.sales, 0);
+  const tExp = wR ? withE.reduce((s, c) => s + c.R.sales * c.e.exp, 0) / wR : null;
+  const head = `팀 ${team}`, sub = `채널 ${chs.length}곳` + (tExp != null ? ` · 기대진척율 ${fmtPct(tExp)}` : ' · 기준일 미입력') + (noE.length && withE.length ? ` (기준일 미입력 ${noE.length}곳 제외)` : '');
+  // ① 매출
+  L.push(`① 매출 진척율 ${fmtPct(T.R.sales ? T.A.sales / T.R.sales : null)} (Rolling ${mil(T.R.sales)} / 실적 ${mil(T.A.sales)})`);
+  if (withE.length){
+    const shortCh = withE.filter(c => c.A.sales / c.R.sales < c.e.exp).sort((a, b) => b.R.sales - a.R.sales);
+    L.push(' - 부족 채널: ' + (shortCh.length ? shortCh.map(c => `${c.ch} ${fmtPct(c.A.sales / c.R.sales)}(기대 ${fmtPct(c.e.exp)})`).join(', ') : '없음'));
+    // 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산)
+    const gap = new Map();
+    for (const c of withE) for (const r of c.cr) gap.set(r.major, (gap.get(r.major) || 0) + r.R.sales * c.e.exp - r.A.sales);
+    const top = [...gap].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    L.push(' - 부족 CAT(부족액 큰 순): ' + (top.length ? top.map(([n, v]) => `${shortName(n)} ${mil(v)}`).join(', ') : '없음'));
+  } else L.push(' - 기준일을 입력하면 부족 채널 · CAT를 보여줘요');
+  // ②③ 비용율 · 원가율: 영향 큰 채널 (율 변화 + 매출비중 변화 합)
+  const chEff = metric => {
+    const d = decompose(chS, T, metric, [[metric, '']]), m = new Map();
+    for (const x of [...d.rateItems, ...d.mixItems]) m.set(x.s.ch, (m.get(x.s.ch) || 0) + x.eff);
+    return [...m].map(([ch, eff]) => ({ch, eff}));
+  };
+  const topCh = (metric, g) => { const sg = gapSign(g); return sg ? chEff(metric).filter(x => x.eff * sg > 0 && Math.abs(x.eff) >= MIN_EFF).sort((a, b) => Math.abs(b.eff) - Math.abs(a.eff)).slice(0, 3) : []; };
+  const cg = fin(rate(T.A, 'cost')) && fin(rate(T.R, 'cost')) ? rate(T.A, 'cost') - rate(T.R, 'cost') : null;
+  if (cg == null) L.push('② 비용율: 매출이 없어 계산할 수 없어요');
+  else {
+    L.push(`② 비용율 ${fmtPp(cg)} (${COMP.map(([k, nm]) => `${nm} ${fmtPp(rate(T.A, k) - rate(T.R, k))}`).join(', ')})`);
+    const tc = topCh('cost', cg);
+    if (tc.length) L.push(' - 영향 큰 채널: ' + tc.map(x => `${x.ch} ${fmtPp(x.eff)}`).join(', '));
+  }
+  const og = fin(rate(T.A, 'cogs')) && fin(rate(T.R, 'cogs')) ? rate(T.A, 'cogs') - rate(T.R, 'cogs') : null;
+  if (og == null) L.push('③ 원가율: 매출이 없어 계산할 수 없어요');
+  else {
+    L.push(`③ 원가율 ${fmtPp(og)}`);
+    const tc = topCh('cogs', og);
+    if (tc.length) L.push(' - 영향 큰 채널: ' + tc.map(x => `${x.ch} ${fmtPp(x.eff)}`).join(', '));
+  }
+  // ④ 공헌이익
+  L.push(`④ 공헌이익 진척율 ${fmtPct(T.R.cm ? T.A.cm / T.R.cm : null)}` + (tExp != null ? ` (기대진척율 ${fmtPct(tExp)})` : ''));
+  if (withE.length){
+    const pS = withE.reduce((s, c) => s + c.A.sales / c.e.exp - c.R.sales, 0), pC = withE.reduce((s, c) => s + c.A.cm / c.e.exp - c.R.cm, 0);
+    L.push(` - 현추세 감안시 매출 ${money(pS)} ${pS >= 0 ? '초과' : '부족'}, 공헌이익 ${money(pC)} ${pC >= 0 ? '초과' : '부족'} 예상` + (noE.length ? ` (기준일 미입력 채널 제외)` : ''));
+  }
+  return {team, head, sub, text: `■ ${head} · ${sub}\n` + L.join('\n')};
+}
+function teamTexts(rows){
+  if ($('gCh').value) return [];
+  const team = $('gTeam').value;
+  return teams(rows.filter(r => !team || r.team === team)).map(tm => teamDiagnose(rows, tm));
+}
 function diagTexts(rows){
   const team = $('gTeam').value, ch = $('gCh').value;
   return channels(rows.filter(r => (!team || r.team === team) && (!ch || r.ch === ch))).map(c => diagnose(rows, c));
 }
 function renderDiag(rows){
   const box = $('diags'); box.replaceChildren();
-  for (const d of diagTexts(rows)){
-    const card = el('div', null, 'diag'), h = el('div', null, 'dh'), btn = el('button', '복사', 'sec');
+  for (const d of [...teamTexts(rows), ...diagTexts(rows)]){
+    const card = el('div', null, d.team ? 'diag team' : 'diag'), h = el('div', null, 'dh'), btn = el('button', '복사', 'sec');
     btn.onclick = () => copyText(d.text, btn);
     h.append(el('b', d.head), el('span', d.sub), btn);
     card.append(h, el('pre', d.text.split('\n').slice(1).join('\n')));
@@ -832,7 +886,7 @@ $('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
 ['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor', 'dSku', 'gTeam', 'gCh'].forEach(id => { $(id).onchange = () => render(false); });
 $('copySum').onclick = () => { if (st.data) copyText(summaryTsv(monthRows().rows), $('copySum')); };
 $('copyDet').onclick = () => { if (st.data) copyText(detailTsv(monthRows().rows), $('copyDet')); };
-$('copyDiag').onclick = () => { if (st.data) copyText(diagTexts(monthRows().rows).map(x => x.text).join('\n\n'), $('copyDiag')); };
+$('copyDiag').onclick = () => { if (st.data) { const r = monthRows().rows; copyText([...teamTexts(r), ...diagTexts(r)].map(x => x.text).join('\n\n'), $('copyDiag')); }; };
 $('pPaste').addEventListener('click', () => $('pPaste').focus());
 const pDrop = $('pDrop');
 const takePromo = f => { if (f) loadPromo(() => fileSheets(f), f.name); };
