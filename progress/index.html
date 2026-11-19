@@ -565,8 +565,13 @@ function teamDiagnose(rows, team){
   if (cg == null) L.push('② 비용율: 매출이 없어 계산할 수 없어요');
   else {
     L.push(`② 비용율 ${fmtPp(cg)} (${COMP.map(([k, nm]) => `${nm} ${fmtPp(rate(T.A, k) - rate(T.R, k))}`).join(', ')})`);
-    const tc = topCh('cost', cg);
-    if (tc.length) L.push(' - 영향 큰 채널: ' + tc.map(x => `${x.ch} ${fmtPp(x.eff)}`).join(', '));
+    // DC · 장려금 · 판관비 각각 영향 큰 채널
+    for (const [k, nm] of COMP){
+      const g = rate(T.A, k) - rate(T.R, k), sg = gapSign(g);
+      if (!sg) continue;
+      const tc = topCh(k, g);
+      L.push(` - ${nm}율 ${fmtPp(g)}: ` + (tc.length ? tc.map(x => `${x.ch} ${fmtPp(x.eff)}`).join(', ') : '두드러진 채널 없음'));
+    }
   }
   const og = fin(rate(T.A, 'cogs')) && fin(rate(T.R, 'cogs')) ? rate(T.A, 'cogs') - rate(T.R, 'cogs') : null;
   if (og == null) L.push('③ 원가율: 매출이 없어 계산할 수 없어요');
