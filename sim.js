@@ -192,7 +192,7 @@ async function simExport(){
     const ex = $('sCh').value && $('s88').value ? {ch: $('sCh').value, c88: $('s88').value, code: p ? p.code : '', price: price > 0 ? price : ''} : null;
     const name = `판매량예측_${ch || '전체채널'}_${year || '전체기간'}.xlsx`;
     const r = await saveFile(name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx', async () => simWorkbook(rows, ex));
-    $('sExpMsg').textContent = r === 'cancelled' ? '저장을 취소했어요.' : `${rows.length.toLocaleString()}행을 담아 저장했어요.`;
+    $('sExpMsg').textContent = r === 'cancelled' ? '저장을 취소했어요.' : r === 'downloaded' ? `${rows.length.toLocaleString()}행 파일 다운로드를 시작했어요. 다운로드 폴더를 확인해 주세요.` : `${rows.length.toLocaleString()}행을 담아 저장했어요.`;
   } catch (e) {
     console.error(e); $('sExpMsg').textContent = `파일을 만들지 못했어요: ${e.message}`;
   } finally { btn.disabled = false; }

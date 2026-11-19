@@ -728,13 +728,24 @@ async function saveFile(name, type, ext, make){
     }
     if (handle){
       const blob = new Blob([await make()], {type});
-      const w = await handle.createWritable();
-      await w.write(blob);
-      await w.close();
-      return 'saved';
+      let w = null;
+      try {
+        w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+        return 'saved';
+      } catch (e) {
+        // 회사 PC 등에서 저장 창 쓰기가 막히면(예: Safe Browsing 검사 실패) 다운로드로 대신 받는다
+        console.warn('저장 창으로 쓰지 못해 다운로드로 받아요', e);
+        try { if (w) await w.abort(); } catch {}
+        return downloadBlob(name, blob);
+      }
     }
   }
-  const url = URL.createObjectURL(new Blob([await make()], {type}));
+  return downloadBlob(name, new Blob([await make()], {type}));
+}
+function downloadBlob(name, blob){
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -1427,6 +1438,6 @@ renderTabs();
 <script src="chart.umd.js"></script>
 <script src="dash.js?v=20261116c"></script>
 <script src="listing.js?v=20261116c"></script>
-<script src="sim.js?v=20261119b"></script>
+<script src="sim.js?v=20261119c"></script>
 </body>
 </html>
