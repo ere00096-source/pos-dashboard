@@ -120,3 +120,81 @@ $('sCh').onchange = () => simFillProducts();
 $('sProd').onchange = () => simFill88();
 ['s88', 'sYear'].forEach(id => { $(id).onchange = () => renderSim(); });
 ['sPrice', 'sTol'].forEach(id => { $(id).oninput = () => renderSim(); });
+
+// ---------- 엑셀 내보내기 (함수로 예상 판매량 계산) ----------
+// 일별판매 시트: 채널+88코드+날짜별 1행. 예측 시트: 채널·88코드·판매가·범위를 넣으면 AVERAGEIFS로 계산.
+function simExportRows(model, year, ch){
+  const m = new Map();
+  for (const x of model.facts){
+    if ((ch && x.ch !== ch) || (year && x.date.slice(0, 4) !== year)) continue;
+    const k = x.ch + '|' + x.c88 + '|' + x.date;
+    const o = m.get(k) || {ch: x.ch, date: x.date, c88: x.c88, maps: x.maps, qty: 0, amount: 0, round: x.round};
+    o.qty += x.qty; o.amount += x.amount; if (!o.round && x.round) o.round = x.round;
+    m.set(k, o);
+  }
+  const roundLabel = new Map(model.roundList.map(r => [r.key, r.label]));
+  return [...m.values()].filter(o => o.qty > 0 && o.amount > 0)
+    .sort((a, b) => a.ch.localeCompare(b.ch, 'ko') || (a.c88 < b.c88 ? -1 : a.c88 > b.c88 ? 1 : 0) || (a.date < b.date ? -1 : 1))
+    .map(o => {
+      const codes = o.maps.map(x => x.productCode), p = model.prod.get(codes[0]);
+      return [o.ch, o.date, o.c88, codes.join(','), (p && p.name) || o.maps[0].eanName || '', Math.round(o.amount / o.qty * 10) / 10, o.qty, Math.round(o.amount), roundLabel.get(o.round) || '차수 외'];
+    });
+}
+const SIM_INPUT_ROWS = 300;
+function simWorkbook(rows, example, nInput = SIM_INPUT_ROWS){
+  const wb = XLSX.utils.book_new();
+  const D = '일별판매';
+  const head = ['채널', '88코드', '제품코드(참고)', '판매가(원)', '범위±(%)', '예상 일 판매량(평균)', '해당 일수', '최소', '최대', '비교 하한', '비교 상한'];
+  const aoa = [head];
+  for (let i = 0; i < nInput; i++) aoa.push(i === 0 && example ? [example.ch, example.c88, example.code, example.price || '', 1] : ['', '', '', '', 1]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const rng = col => `'${D}'!$${col}:$${col}`;
+  for (let r = 2; r <= nInput + 1; r++){
+    const cond = `${rng('A')},$A${r},${rng('C')},""&$B${r},${rng('F')},">="&$J${r},${rng('F')},"<="&$K${r}`;
+    const blank = `OR($A${r}="",$B${r}="",$D${r}="")`;
+    ws['J' + r] = {t: 'n', f: `IF(${blank},"",$D${r}*(1-$E${r}/100))`};
+    ws['K' + r] = {t: 'n', f: `IF(${blank},"",$D${r}*(1+$E${r}/100))`};
+    ws['F' + r] = {t: 'n', f: `IF(${blank},"",IFERROR(ROUND(AVERAGEIFS(${rng('G')},${cond}),1),"해당 판매가 없음"))`};
+    ws['G' + r] = {t: 'n', f: `IF(${blank},"",COUNTIFS(${cond}))`};
+    ws['H' + r] = {t: 'n', f: `IF(OR(${blank},$G${r}=0),"",_xlfn.MINIFS(${rng('G')},${cond}))`};
+    ws['I' + r] = {t: 'n', f: `IF(OR(${blank},$G${r}=0),"",_xlfn.MAXIFS(${rng('G')},${cond}))`};
+  }
+  ws['!ref'] = `A1:K${nInput + 1}`;
+  ws['!cols'] = [14, 16, 16, 11, 9, 18, 9, 8, 8, 10, 10].map(w => ({wch: w}));
+  XLSX.utils.book_append_sheet(wb, ws, '예측');
+  const wd = XLSX.utils.aoa_to_sheet([['채널', '날짜', '88코드', '제품코드', '제품명', '판매가(원)', '판매수량', '판매금액', '행사차수'], ...rows]);
+  for (let r = 2; r <= rows.length + 1; r++){ const c = wd['C' + r]; if (c){ c.t = 's'; c.v = String(c.v); } }
+  wd['!cols'] = [14, 11, 16, 16, 30, 10, 9, 12, 10].map(w => ({wch: w}));
+  XLSX.utils.book_append_sheet(wb, wd, D);
+  const help = [
+    ['사용 방법'],
+    ['1. 예측 시트에 채널 · 88코드 · 판매가를 적으면 예상 일 판매량이 계산돼요. 범위는 기본 ±1%예요.'],
+    ['2. 예상 일 판매량 = 일별판매 시트에서 같은 채널 · 88코드이고, 하루 판매가가 판매가 ±범위 안인 날들의 판매수량 평균이에요.'],
+    ['3. 하루 판매가 = 그날 판매금액 ÷ 판매수량. 납품가 채널은 매익률로 환산한 판매가예요. 판매수량은 판매단위(88코드) 기준이에요.'],
+    ['4. 채널명은 일별판매 시트의 채널 값과 똑같이 적어 주세요. 제품코드 칸은 참고용이고 계산에는 쓰지 않아요.'],
+    ['5. 최소 · 최대(MINIFS · MAXIFS)는 엑셀 2019 이상에서 계산돼요.'],
+  ];
+  const wh = XLSX.utils.aoa_to_sheet(help); wh['!cols'] = [{wch: 110}];
+  XLSX.utils.book_append_sheet(wb, wh, '설명');
+  return XLSX.write(wb, {type: 'array', bookType: 'xlsx'});
+}
+async function simExport(){
+  const model = sim.model, btn = $('sExport');
+  if (!model) return;
+  const year = $('sYear').value, ch = $('sExpScope').value === 'ch' ? $('sCh').value : '';
+  const rows = simExportRows(model, year, ch);
+  if (!rows.length){ $('sExpMsg').textContent = '내보낼 판매 기록이 없어요.'; return; }
+  if (rows.length > 1000000){ $('sExpMsg').textContent = `행이 ${rows.length.toLocaleString()}개라 엑셀 한도를 넘어요. 현재 채널만 내보내 주세요.`; return; }
+  btn.disabled = true; $('sExpMsg').textContent = `${rows.length.toLocaleString()}행으로 파일을 만드는 중이에요...`;
+  try {
+    const p = (sim.products || []).find(x => x.code === $('sProd').value);
+    const price = Number(String($('sPrice').value).replace(/[,\s원]/g, ''));
+    const ex = $('sCh').value && $('s88').value ? {ch: $('sCh').value, c88: $('s88').value, code: p ? p.code : '', price: price > 0 ? price : ''} : null;
+    const name = `판매량예측_${ch || '전체채널'}_${year || '전체기간'}.xlsx`;
+    const r = await saveFile(name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx', async () => simWorkbook(rows, ex));
+    $('sExpMsg').textContent = r === 'cancelled' ? '저장을 취소했어요.' : `${rows.length.toLocaleString()}행을 담아 저장했어요.`;
+  } catch (e) {
+    console.error(e); $('sExpMsg').textContent = `파일을 만들지 못했어요: ${e.message}`;
+  } finally { btn.disabled = false; }
+}
+$('sExport').onclick = () => simExport();

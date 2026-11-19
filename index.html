@@ -168,6 +168,8 @@ button.rowlink:hover{text-decoration:underline}
         <label class="fld">판매가 (원)<input id="sPrice" inputmode="numeric" placeholder="예: 5980"></label>
         <label class="fld">범위 ± (%)<input id="sTol" type="number" min="0" step="0.5" value="1"></label>
       </div>
+      <div class="actions" style="margin-top:12px"><label class="fld">엑셀 범위<select id="sExpScope"><option value="ch">현재 채널만</option><option value="all">전체 채널</option></select></label><button class="sec" id="sExport" type="button">엑셀로 내보내기 (함수 포함)</button><span class="sub" id="sExpMsg"></span></div>
+      <p class="sub" style="margin:6px 0 0">공유용 엑셀: "예측" 시트에 채널 · 88코드 · 판매가를 적으면 AVERAGEIFS 함수로 예상 일 판매량이 나와요. "일별판매" 시트가 원본이에요 (선택한 기간 기준).</p>
     </div>
     <div id="sResult"></div>
   </section>
@@ -1425,6 +1427,6 @@ renderTabs();
 <script src="chart.umd.js"></script>
 <script src="dash.js?v=20261116c"></script>
 <script src="listing.js?v=20261116c"></script>
-<script src="sim.js?v=20261119a"></script>
+<script src="sim.js?v=20261119b"></script>
 </body>
 </html>
