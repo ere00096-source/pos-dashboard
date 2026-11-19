@@ -197,4 +197,66 @@ async function simExport(){
     console.error(e); $('sExpMsg').textContent = `파일을 만들지 못했어요: ${e.message}`;
   } finally { btn.disabled = false; }
 }
-$('sExport').onclick = () => simExport();
+
+// ---------- 복사 · 붙여넣기용 (파일 저장이 막힌 PC) ----------
+// 예측 시트: 제목 + 함수 행(엑셀에 붙여넣으면 함수로 들어감). 일별판매: 원본 데이터.
+function simFormTsv(example, n = SIM_INPUT_ROWS){
+  const D = "'일별판매'!";
+  const out = [['채널', '88코드', '제품코드(참고)', '판매가(원)', '범위±(%)', '예상 일 판매량(평균)', '해당 일수', '최소', '최대', '비교 하한', '비교 상한'].join('\t')];
+  for (let i = 0; i < n; i++){
+    const r = i + 2, ex = i === 0 && example ? example : null;
+    const cond = `${D}$A:$A,$A${r},${D}$C:$C,""&$B${r},${D}$F:$F,">="&$J${r},${D}$F:$F,"<="&$K${r}`;
+    const blank = `OR($A${r}="",$B${r}="",$D${r}="")`;
+    out.push([ex ? ex.ch : '', ex ? ex.c88 : '', ex ? ex.code : '', ex && ex.price ? ex.price : '', 1,
+      `=IF(${blank},"",IFERROR(ROUND(AVERAGEIFS(${D}$G:$G,${cond}),1),"해당 판매가 없음"))`,
+      `=IF(${blank},"",COUNTIFS(${cond}))`,
+      `=IF(OR(${blank},$G${r}=0),"",MINIFS(${D}$G:$G,${cond}))`,
+      `=IF(OR(${blank},$G${r}=0),"",MAXIFS(${D}$G:$G,${cond}))`,
+      `=IF(${blank},"",$D${r}*(1-$E${r}/100))`,
+      `=IF(${blank},"",$D${r}*(1+$E${r}/100))`].join('\t'));
+  }
+  return out.join('\r\n') + '\r\n';
+}
+function simDataTsv(rows){
+  const clean = v => String(v ?? '').replace(/[\t\r\n]/g, ' ');
+  return [['채널', '날짜', '88코드', '제품코드', '제품명', '판매가(원)', '판매수량', '판매금액', '행사차수'], ...rows].map(r => r.map(clean).join('\t')).join('\r\n') + '\r\n';
+}
+function simExample(){
+  const p = (sim.products || []).find(x => x.code === $('sProd').value);
+  const price = Number(String($('sPrice').value).replace(/[,\s원]/g, ''));
+  return $('sCh').value && $('s88').value ? {ch: $('sCh').value, c88: $('s88').value, code: p ? p.code : '', price: price > 0 ? price : ''} : null;
+}
+// 클립보드 API가 막히면 textarea + execCommand로 복사
+async function simClip(t){
+  try { await navigator.clipboard.writeText(t); return; } catch {}
+  const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.append(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch {}
+  ta.remove();
+  if (!ok) throw new Error('브라우저가 복사를 막았어요');
+}
+async function simCopy(kind){
+  const model = sim.model;
+  if (!model) return;
+  try {
+    if (kind === 'form'){
+      const t = simFormTsv(simExample());
+      sim.lastCopy = t;
+      await simClip(t);
+      $('sExpMsg').textContent = `① 예측 시트(함수 ${SIM_INPUT_ROWS}행)를 복사했어요. 엑셀 "예측" 시트 A1 칸에 붙여넣으세요.`;
+    } else {
+      const year = $('sYear').value, ch = $('sExpScope').value === 'ch' ? $('sCh').value : '';
+      const rows = simExportRows(model, year, ch);
+      if (!rows.length){ $('sExpMsg').textContent = '복사할 판매 기록이 없어요.'; return; }
+      if (rows.length > 1000000){ $('sExpMsg').textContent = `행이 ${rows.length.toLocaleString()}개라 엑셀 한도를 넘어요. 현재 채널만 복사해 주세요.`; return; }
+      const t = simDataTsv(rows);
+      sim.lastCopy = t;
+      await simClip(t);
+      $('sExpMsg').textContent = `② 일별판매 ${rows.length.toLocaleString()}행을 복사했어요. 엑셀 "일별판매" 시트 A1 칸에 붙여넣으세요.`;
+    }
+  } catch (e) {
+    $('sExpMsg').textContent = `복사하지 못했어요: ${e.message}`;
+  }
+}
+$('sCopyForm').onclick = () => simCopy('form');
+$('sCopyData').onclick = () => simCopy('data');

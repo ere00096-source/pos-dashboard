@@ -168,8 +168,16 @@ button.rowlink:hover{text-decoration:underline}
         <label class="fld">판매가 (원)<input id="sPrice" inputmode="numeric" placeholder="예: 5980"></label>
         <label class="fld">범위 ± (%)<input id="sTol" type="number" min="0" step="0.5" value="1"></label>
       </div>
-      <div class="actions" style="margin-top:12px"><label class="fld">엑셀 범위<select id="sExpScope"><option value="ch">현재 채널만</option><option value="all">전체 채널</option></select></label><button class="sec" id="sExport" type="button">엑셀로 내보내기 (함수 포함)</button><span class="sub" id="sExpMsg"></span></div>
-      <p class="sub" style="margin:6px 0 0">공유용 엑셀: "예측" 시트에 채널 · 88코드 · 판매가를 적으면 AVERAGEIFS 함수로 예상 일 판매량이 나와요. "일별판매" 시트가 원본이에요 (선택한 기간 기준).</p>
+      <h2 style="margin-top:18px">공유용 엑셀 만들기 (복사 · 붙여넣기)</h2>
+      <ol class="sub" style="margin:4px 0 10px;padding-left:20px;line-height:1.8">
+        <li>엑셀 새 파일에서 시트 2개를 만들고 이름을 <b>예측</b>, <b>일별판매</b>로 바꿔 주세요.</li>
+        <li>"① 예측 시트 복사"를 누르고 <b>예측</b> 시트 A1 칸에 붙여넣기 (함수가 들어가요).</li>
+        <li>"② 일별판매 데이터 복사"를 누르고 <b>일별판매</b> 시트 A1 칸에 붙여넣기.</li>
+        <li>예측 시트에 채널 · 88코드 · 판매가를 적으면 예상 일 판매량이 계산돼요 (같은 채널 · 88코드, 하루 판매가가 ±범위 안인 날들의 평균 판매수량).</li>
+      </ol>
+      <div class="actions"><label class="fld">일별판매 범위<select id="sExpScope"><option value="ch">현재 채널만</option><option value="all">전체 채널</option></select></label><button class="sec" id="sCopyForm" type="button">① 예측 시트 복사</button><button class="sec" id="sCopyData" type="button">② 일별판매 데이터 복사</button></div>
+      <p class="sub" id="sExpMsg" style="margin:8px 0 0"></p>
+      <p class="sub" style="margin:4px 0 0">일별판매는 위에서 고른 기간 기준이에요. 88코드가 1.23E+12처럼 보이면 열 서식을 숫자(소수 0자리)로 바꾸면 돼요. 계산에는 영향 없어요. 최소 · 최대는 엑셀 2019 이상에서 나와요.</p>
     </div>
     <div id="sResult"></div>
   </section>
@@ -1438,6 +1446,6 @@ renderTabs();
 <script src="chart.umd.js"></script>
 <script src="dash.js?v=20261116c"></script>
 <script src="listing.js?v=20261116c"></script>
-<script src="sim.js?v=20261119c"></script>
+<script src="sim.js?v=20261119d"></script>
 </body>
 </html>
