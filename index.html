@@ -39,6 +39,7 @@ button:disabled{opacity:.5;cursor:default}
 .stat{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:#fff}
 .stat span{color:var(--sub);font-size:12px;display:block}
 .stat b{font-size:19px}
+.stat small{display:block;color:var(--sub);font-size:12px;margin-top:2px}
 .msg{border-radius:6px;padding:10px 12px;margin:0 0 10px;font-size:13px}
 .msg.err{background:var(--err-soft);color:var(--err)}
 .msg.warn{background:var(--warn-soft);color:var(--warn)}
@@ -89,6 +90,7 @@ button.rowlink:hover{text-decoration:underline}
     <button id="navStatus">데이터 현황</button>
     <button id="navReview">검토 리스트</button>
     <button id="navDash">대시보드</button>
+    <button id="navSim">판매량 예측</button>
     <button id="navListing">입점 제안</button>
   </nav>
 </header>
@@ -152,6 +154,22 @@ button.rowlink:hover{text-decoration:underline}
       <div class="actions"><button class="sec" id="reviewDownload">전체 리스트 엑셀로 내려받기</button><button class="sec" id="reviewCopy">이 리스트 복사</button><button class="sec hide" id="reviewTemplate">매칭표 양식으로 복사</button><span class="sub" id="reviewCap"></span></div>
       <p id="reviewMsg" class="msg hide" style="margin-top:12px"></p>
     </div>
+  </section>
+
+  <section id="viewSim" class="hide">
+    <div class="card">
+      <h2>판매가로 예상 일 판매량 보기</h2>
+      <p class="need">채널 · 제품 · 판매단위(88코드)를 고르고 판매가를 입력하면, 하루 판매가(판매금액 ÷ 판매수량)가 그 판매가 ±범위 안이었던 날들의 평균 판매수량을 보여줘요. 납품가 채널은 매익률로 환산한 판매가예요. 판매수량은 판매단위(88코드) 기준이에요.</p>
+      <div class="filters">
+        <label class="fld">채널<select id="sCh"></select></label>
+        <label class="fld">제품<select id="sProd"></select></label>
+        <label class="fld">판매단위 (88코드)<select id="s88"></select></label>
+        <label class="fld">기간<select id="sYear"></select></label>
+        <label class="fld">판매가 (원)<input id="sPrice" inputmode="numeric" placeholder="예: 5980"></label>
+        <label class="fld">범위 ± (%)<input id="sTol" type="number" min="0" step="0.5" value="1"></label>
+      </div>
+    </div>
+    <div id="sResult"></div>
   </section>
 
   <section id="viewDash" class="hide">
@@ -1384,7 +1402,7 @@ async function lookupCode(){
 $('lookupBtn').onclick = () => lookupCode().catch(e => $('lookupResult').replaceChildren(el('p', `조회하지 못했어요: ${e.message}`, 'msg err')));
 $('lookupCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookupBtn').click(); });
 
-const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview'], dash: ['viewDash', 'navDash'], listing: ['viewListing', 'navListing']};
+const VIEWS = {upload: ['viewUpload', 'navUpload'], status: ['viewStatus', 'navStatus'], review: ['viewReview', 'navReview'], dash: ['viewDash', 'navDash'], sim: ['viewSim', 'navSim'], listing: ['viewListing', 'navListing']};
 function show(view){
   for (const [k, [sec, nav]] of Object.entries(VIEWS)){
     $(sec).classList.toggle('hide', k !== view);
@@ -1393,17 +1411,20 @@ function show(view){
   if (view === 'status') loadStatus();
   if (view === 'review') loadReview();
   if (view === 'dash') loadDash();
+  if (view === 'sim') loadSim();
   if (view === 'listing') loadListing();
 }
 $('navUpload').onclick = () => show('upload');
 $('navStatus').onclick = () => show('status');
 $('navReview').onclick = () => show('review');
 $('navDash').onclick = () => show('dash');
+$('navSim').onclick = () => show('sim');
 $('navListing').onclick = () => show('listing');
 renderTabs();
 </script>
 <script src="chart.umd.js"></script>
 <script src="dash.js?v=20261116c"></script>
 <script src="listing.js?v=20261116c"></script>
+<script src="sim.js?v=20261119a"></script>
 </body>
 </html>
