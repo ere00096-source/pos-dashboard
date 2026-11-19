@@ -483,7 +483,7 @@ function momLine(nm, C, P, k){
   const dT = C.R[k] - P.R[k], rT = P.R[k] ? dT / Math.abs(P.R[k]) : null;
   const dA = C.A[k] - P.A[k], rA = P.A[k] ? dA / Math.abs(P.A[k]) : null;
   const tg = rT != null ? `${pctTxt(rT)} ${updown(rT)} 타겟` : '타겟 계산 불가(전월 Rolling 없음)';
-  return `전월대비 ${nm} ${tg}, 실적 ${m0(dA)}${rA != null ? `(${pctTxt(rA)})` : ''} ${updown(rA != null ? rA : dA)}`;
+  return `${nm} ${tg}, 실적 ${m0(dA)}${rA != null ? `(${pctTxt(rA)})` : ''} ${updown(rA != null ? rA : dA)}`;
 }
 // 진단 순서: 1. 전월 동기간 대비 Gap → 2. 매출 진척율 부족 → 3. 비용율 → 4. 원가율 → 5. 공헌이익
 const RENUM = {'①': '2.', '②': '3.', '③': '4.', '④': '5.'};
@@ -498,7 +498,7 @@ function momLines(cur, prev, pm){
   const majors = [...new Set([...cs.keys(), ...ps.keys()])];
   // 전월대비 매출이 많이 빠진 대CAT 3개 (공헌이익도 같은 CAT로)
   const top = majors.map(n => ({n, d: (cs.get(n) || 0) - (ps.get(n) || 0), dc: (cc.get(n) || 0) - (pc.get(n) || 0)}))
-    .filter(x => Math.round(x.d / 1e6) < 0).sort((a, b) => a.d - b.d).slice(0, 3);
+    .filter(x => Math.round(x.d / 1e6) < 0 && shortName(x.n) !== '기타').sort((a, b) => a.d - b.d).slice(0, 3); // 기타 CAT은 제외
   L.push('① ' + momLine('매출', C, P, 'sales'));
   L.push(' - ' + (top.length ? top.map(x => `${shortName(x.n)} ${m0(x.d)}`).join(', ') : '매출 빠진 CAT 없음'));
   L.push('② ' + momLine('공헌이익', C, P, 'cm'));
