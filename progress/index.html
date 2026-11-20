@@ -441,7 +441,6 @@ function upTo80(list, val){
 }
 const shortName = s => text(s).replace(/^[A-Za-z]{1,3}\d*\.\s*/, '') || text(s);
 const mil = v => Math.round(v / 1e6).toLocaleString('ko-KR') + '백만';
-const money = v => { const a = Math.abs(v); return a >= 1e8 ? (a / 1e8).toFixed(1) + '억' : Math.round(a / 1e4).toLocaleString('ko-KR') + '만원'; };
 function expOf(ch){
   const day = loadDays()[st.month + '|' + ch], dim = daysInMonth(st.month);
   return day >= 1 && day <= dim ? {day, exp: day / dim} : null;
@@ -581,7 +580,7 @@ function diagnose(rows, ch){
   L.push(` - 공헌이익 진척율 ${fmtPct(cmProg)}` + (e ? ` (기대진척율 ${fmtPct(e.exp)})` : ''));
   if (e){
     const dS = T.A.sales / e.exp - T.R.sales, dC = T.A.cm / e.exp - T.R.cm;
-    L.push(` - 현추세 감안시 매출 ${money(dS)} ${dS >= 0 ? '초과' : '부족'} 달성 예상, 공헌이익 ${money(dC)} ${dC >= 0 ? '초과' : '부족'} 예상`);
+    L.push(` - 현추세 감안시 매출 ${mil(Math.abs(dS))} ${dS >= 0 ? '초과' : '부족'} 달성 예상, 공헌이익 ${mil(Math.abs(dC))} ${dC >= 0 ? '초과' : '부족'} 예상`);
     // 매출 부족액(Rolling × 기대진척율 − 실적)이 큰 대CAT 3개 > 소CAT 3개
     const sf = s => s.R.sales * e.exp - s.A.sales;
     const shareOf = s => T.R.sales ? s.R.sales / T.R.sales : 0;
@@ -647,7 +646,7 @@ function teamDiagnose(rows, team){
   L.push(`④ 공헌이익 진척율 ${fmtPct(T.R.cm ? T.A.cm / T.R.cm : null)}` + (tExp != null ? ` (기대진척율 ${fmtPct(tExp)})` : ''));
   if (withE.length){
     const pS = withE.reduce((s, c) => s + c.A.sales / c.e.exp - c.R.sales, 0), pC = withE.reduce((s, c) => s + c.A.cm / c.e.exp - c.R.cm, 0);
-    L.push(` - 현추세 감안시 매출 ${money(pS)} ${pS >= 0 ? '초과' : '부족'}, 공헌이익 ${money(pC)} ${pC >= 0 ? '초과' : '부족'} 예상` + (noE.length ? ` (기준일 미입력 채널 제외)` : ''));
+    L.push(` - 현추세 감안시 매출 ${mil(Math.abs(pS))} ${pS >= 0 ? '초과' : '부족'}, 공헌이익 ${mil(Math.abs(pC))} ${pC >= 0 ? '초과' : '부족'} 예상` + (noE.length ? ` (기준일 미입력 채널 제외)` : ''));
   }
   const pv = prevRows(), all = withMom(L, momLines(tr, pv && pv.rows.filter(r => r.team === team), pv ? pv.pm : prevMonthLabel(st.month)));
   return {team, head, sub, text: `■ ${head} · ${sub}\n` + all.join('\n')};
