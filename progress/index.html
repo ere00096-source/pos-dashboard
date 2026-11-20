@@ -585,7 +585,7 @@ function diagnose(rows, ch){
     // 매출 부족액(Rolling × 기대진척율 − 실적)이 큰 대CAT 3개 > 소CAT 3개
     const sf = s => s.R.sales * e.exp - s.A.sales;
     const shareOf = s => T.R.sales ? s.R.sales / T.R.sales : 0;
-    const info = s => `매출 부족 ${m0(sf(s))}, 매출비중 ${fmtPct(shareOf(s))}, 공헌이익 진척 ${s.R.cm ? fmtPct(s.A.cm / s.R.cm) : '–'}`;
+    const info = s => `매출 부족 ${m0(sf(s))}, 공헌이익 부족 ${m0(s.R.cm * e.exp - s.A.cm)}, 매출비중 ${fmtPct(shareOf(s))}, 공헌이익 진척 ${s.R.cm ? fmtPct(s.A.cm / s.R.cm) : '–'}`;
     const groups = [...new Set(cr.map(r => r.major))].map(n => { const rs = cr.filter(r => r.major === n); return {n, rs, s: sum(rs)}; })
       .filter(g => Math.round(sf(g.s) / 1e6) > 0).sort((x, y) => sf(y.s) - sf(x.s)).slice(0, 3);
     L.push(' - 매출 부족 큰 CAT (부족액 큰 순, 백만)' + (groups.length ? '' : ': 없음'));
