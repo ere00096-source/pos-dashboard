@@ -130,7 +130,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
         <button class="sec" id="copyDet">전체 복사</button>
       </div>
       <div class="tbl"><table id="detTable"></table></div>
-      <p class="sub" style="margin:8px 0 0">예측 = 실적 값이에요. gap = 예측 − Rolling (금액은 원, 비율은 %p). 매출비중 = 해당 카테고리 총매출 ÷ 그 채널 전체 총매출.</p>
+      <p class="sub" style="margin:8px 0 0">예측 = 실적 값이에요. gap = 예측 − Rolling (금액은 원, 비율은 %p). 매출비중 = 해당 카테고리 총매출 ÷ 그 채널 전체 총매출. 채널 영향(율 변화) = 예측 매출비중 × (예측 율 − Rolling 율), 채널 영향(P-MIX) = (예측 − Rolling 매출비중) × (Rolling 율 − 채널 Rolling 율). 제품명을 고르면 그 제품의 채널 영향을 볼 수 있어요.</p>
     </div>
 
     <div class="card">
@@ -393,17 +393,23 @@ function detailData(rows){
       return {lab, amt: true, r: g.s.R[k], a: g.s.A[k], share, gap: g.s.A[k] - g.s.R[k]};
     }
     const r = rate(g.s.R, k), a = rate(g.s.A, k);
-    return {lab, amt: false, r, a, share: null, gap: fin(r) && fin(a) ? a - r : null};
+    // 채널 영향 (결과뷰 3과 같은 방식): 율 변화 = 예측 매출비중 × (예측 율 − Rolling 율), P-MIX = 매출비중 변화 × (Rolling 율 − 채널 Rolling 율)
+    const sR = g.chTot.R.sales ? g.s.R.sales / g.chTot.R.sales : 0, sA = g.chTot.A.sales ? g.s.A.sales / g.chTot.A.sales : 0, chR = rate(g.chTot.R, k) || 0;
+    let rEff = null, mEff = null;
+    if (fin(r) && fin(a)){ rEff = sA * (a - r); mEff = (sA - sR) * (r - chR); }
+    else if (fin(a)){ rEff = 0; mEff = sA * (a - chR); }
+    else if (fin(r)){ rEff = 0; mEff = -sR * (r - chR); }
+    return {lab, amt: false, r, a, share: null, gap: fin(r) && fin(a) ? a - r : null, rEff, mEff};
   })}))};
 }
 function renderDetail(rows){
   const t = $('detTable'); t.replaceChildren();
   const d = detailData(rows);
   const thead = el('thead'), hr = el('tr');
-  [['경로세부1', ''], ['팀구분', ''], [d.by === 'major' ? '대카테고리' : d.by === 'minor' ? '소카테고리' : '제품명', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
+  [['경로세부1', ''], ['팀구분', ''], [d.by === 'major' ? '대카테고리' : d.by === 'minor' ? '소카테고리' : '제품명', ''], ['값', ''], ['Rolling', 'n'], ['예측', 'n'], ['매출비중(Rolling)', 'n'], ['매출비중(예측)', 'n'], ['gap', 'n'], ['채널 영향(율 변화)', 'n'], ['채널 영향(P-MIX)', 'n']].forEach(([h, c]) => hr.append(el('th', h, c)));
   thead.append(hr);
   const tb = el('tbody');
-  if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 9; tr.append(td); tb.append(tr); }
+  if (!d.groups.length){ const tr = el('tr'), td = el('td', '조건에 맞는 자료가 없어요.', 'sub'); td.colSpan = 11; tr.append(td); tb.append(tr); }
   for (const g of d.groups){
     g.lines.forEach((ln, i) => {
       const tr = el('tr', null, [i === 0 ? 'gstart' : '', ln.amt ? 'amt' : '', g.total ? 'total' : ''].filter(Boolean).join(' '));
@@ -414,7 +420,9 @@ function renderDetail(rows){
         el('td', f(ln.a), 'n' + (ln.a < 0 ? ' neg' : '')),
         el('td', ln.share ? fmtPct(ln.share[0]) : '', 'n'),
         el('td', ln.share ? fmtPct(ln.share[1]) : '', 'n'),
-        el('td', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap), 'n'));
+        el('td', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap), 'n'),
+        el('td', ln.amt ? '' : fmtPp(ln.rEff), 'n'),
+        el('td', ln.amt ? '' : fmtPp(ln.mEff), 'n'));
       tb.append(tr);
     });
   }
@@ -775,10 +783,10 @@ function summaryTsv(rows){
 }
 function detailTsv(rows){
   const d = detailData(rows);
-  const out = [['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : d.by === 'minor' ? '소카테고리' : '제품명', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap']];
+  const out = [['경로세부1', '팀구분', d.by === 'major' ? '대카테고리' : d.by === 'minor' ? '소카테고리' : '제품명', '값', 'Rolling', '예측', '매출비중(Rolling)', '매출비중(예측)', 'gap', '채널 영향(율 변화)', '채널 영향(P-MIX)']];
   for (const g of d.groups) for (const ln of g.lines){
     const f = v => ln.amt ? fmtAmt(v) : fmtPct(v);
-    out.push([g.ch, g.teamLab, g.name, ln.lab, f(ln.r), f(ln.a), ln.share ? fmtPct(ln.share[0]) : '', ln.share ? fmtPct(ln.share[1]) : '', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap)]);
+    out.push([g.ch, g.teamLab, g.name, ln.lab, f(ln.r), f(ln.a), ln.share ? fmtPct(ln.share[0]) : '', ln.share ? fmtPct(ln.share[1]) : '', ln.amt ? fmtSAmt(ln.gap) : fmtPp(ln.gap), ln.amt ? '' : fmtPp(ln.rEff), ln.amt ? '' : fmtPp(ln.mEff)]);
   }
   return tsv(out);
 }
