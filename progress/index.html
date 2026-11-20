@@ -141,7 +141,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
         <button class="sec" id="copyDiag">전체 복사</button>
       </div>
       <div class="diags" id="diags"></div>
-      <p class="sub" style="margin:10px 0 0">팀 요약: 팀 기대진척율 = 채널 기대진척율을 Rolling 매출로 가중평균. 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산). 부족 CAT는 부족분 큰 것부터 전체 부족분의 80%를 설명할 때까지만 고르고, 잔여 매출(Rolling − 실적) 큰 순으로 보여줘요. 영향 큰 채널 = 그 채널의 율 변화 + 매출비중 변화 영향 합. 채널을 고르면 팀 요약은 숨겨요.<br>부족 = 진척율 &lt; 기대진척율. 1. 전월 동기간 대비: RAW에 전월 행(예측 = 같은 기간 실적)이 있으면 계산해요. 타겟 증감율 = (당월 Rolling − 전월 Rolling) ÷ 전월 Rolling, 실적 증감 = 당월 예측 − 전월 예측 (괄호는 증감율). CAT = 전월대비 매출이 많이 빠진 대카테고리 3개(기타 제외), 소카테고리는 대카테고리 감소액의 80% 이상을 설명할 때까지. 금액은 백만 단위. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요. 월말 예상 = 실적 ÷ 기대진척율.<br>· 율 변화 줄의 채널 영향 = 그 품목의 실적 매출비중 × (실적 율 − Rolling 율) &nbsp;예) 실적 DC율 − Rolling DC율<br>· P-MIX 줄의 채널 영향 = 매출비중 변화(실적 − Rolling) × (그 품목 율 − 채널 Rolling 율)<br>· 모든 품목의 두 영향을 더하면 채널 율 gap과 같아요.</p>
+      <p class="sub" style="margin:10px 0 0">팀 요약: 팀 기대진척율 = 채널 기대진척율을 Rolling 매출로 가중평균. 부족액 = Rolling × 채널 기대진척율 − 실적 (팀 합산). 부족 CAT는 부족분 큰 것부터 전체 부족분의 80%를 설명할 때까지만 고르고, 잔여 매출(Rolling − 실적) 큰 순으로 보여줘요. 영향 큰 채널 = 그 채널의 율 변화 + 매출비중 변화 영향 합. 채널을 고르면 팀 요약은 숨겨요.<br>부족 = 진척율 &lt; 기대진척율. 1. 전월 동기간 대비: RAW에 전월 행(예측 = 같은 기간 실적)이 있으면 계산해요. 타겟 증감율 = (당월 Rolling − 전월 Rolling) ÷ 전월 Rolling, 실적 증감 = 당월 예측 − 전월 예측 (괄호는 증감율). CAT = 전월대비 매출이 많이 빠진 대카테고리 3개(기타 제외), 소카테고리는 대카테고리 감소액의 80% 이상을 설명할 때까지. 금액은 백만 단위. 잔여기간 매출 = Rolling − 실적. 원인 SKU는 채널 비율 gap에 같은 방향으로 0.05%p 이상 영향을 준 SKU를 큰 순서로 최대 3개씩 보여줘요. 월말 예상 = 실적 ÷ 기대진척율. 5번의 부족 CAT = 매출 · 공헌이익 진척율이 모두 기대진척율 미만인 대카테고리와 소카테고리(최대 3개), Rolling 매출비중 큰 순.<br>· 율 변화 줄의 채널 영향 = 그 품목의 실적 매출비중 × (실적 율 − Rolling 율) &nbsp;예) 실적 DC율 − Rolling DC율<br>· P-MIX 줄의 채널 영향 = 매출비중 변화(실적 − Rolling) × (그 품목 율 − 채널 Rolling 율)<br>· 모든 품목의 두 영향을 더하면 채널 율 gap과 같아요.</p>
     </div>
   </div>
 </main>
@@ -582,7 +582,17 @@ function diagnose(rows, ch){
   if (e){
     const dS = T.A.sales / e.exp - T.R.sales, dC = T.A.cm / e.exp - T.R.cm;
     L.push(` - 현추세 감안시 매출 ${money(dS)} ${dS >= 0 ? '초과' : '부족'} 달성 예상, 공헌이익 ${money(dC)} ${dC >= 0 ? '초과' : '부족'} 예상`);
-    if (short.length) L.push(` - 매출 부족 CAT 달성 필요: ${short.map(g => `${shortName(g.name)}(이익율 ${fmtPct(rate(g.s.R, 'cm'))})`).join(', ')}`);
+    // 매출 · 공헌이익 진척율이 모두 기대진척율 미만인 대CAT > 소CAT (Rolling 매출비중 큰 순)
+    const both = s => s.R.sales > 0 && s.A.sales / s.R.sales < e.exp && s.R.cm > 0 && s.A.cm / s.R.cm < e.exp;
+    const shareOf = s => T.R.sales ? s.R.sales / T.R.sales : 0;
+    const groups = [...new Set(cr.map(r => r.major))].map(n => { const rs = cr.filter(r => r.major === n); return {n, rs, s: sum(rs)}; })
+      .filter(g => both(g.s)).sort((x, y) => y.s.R.sales - x.s.R.sales);
+    L.push(' - 매출 · 공헌이익 부족 CAT (매출비중 큰 순)' + (groups.length ? '' : ': 없음'));
+    for (const g of groups){
+      const mins = [...new Set(g.rs.map(r => r.minor))].map(n => ({n, s: sum(g.rs.filter(r => r.minor === n))})).filter(m => both(m.s)).sort((x, y) => y.s.R.sales - x.s.R.sales).slice(0, 3);
+      const info = s => `매출비중 ${fmtPct(shareOf(s))}, 매출 진척 ${fmtPct(s.A.sales / s.R.sales)}, 공헌이익 진척 ${fmtPct(s.A.cm / s.R.cm)}`;
+      L.push(`   · ${shortName(g.n)}(${info(g.s)})` + (mins.length ? ' > ' + mins.map(m => `${shortName(m.n)}(${info(m.s)})`).join(', ') : ''));
+    }
   } else L.push(' - 기준일을 입력하면 월말 예상치를 계산해요');
   const pv = prevRows(), all = withMom(L, momLines(cr, pv && pv.rows.filter(r => r.ch === ch), pv ? pv.pm : prevMonthLabel(st.month)));
   return {ch, head, sub, text: `■ ${head} · ${sub}\n` + all.join('\n')};
