@@ -74,7 +74,7 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
 
   <div class="card">
     <h2>자료 넣기</h2>
-    <p class="need">구분(Rolling / Rolling(변형) / 실적·예측) · 월 · 경로구분 · 팀구분 · 경로세부1(채널) · 대카테고리 · 소카테고리 · 총매출 · DC · 장려금 · 판관비 · 비용 · 변동원가 · 운송비 · 공헌이익 열이 있는 RAW예요. 다시 넣으면 통째로 바뀌어요.</p>
+    <p class="need">구분(Rolling / Rolling(변형) / 실적·예측) · 월 · 일(기간, 예: 1일~15일) · 경로구분 · 팀구분 · 경로세부1(채널) · 대카테고리 · 소카테고리 · 총매출 · DC · 장려금 · 판관비 · 비용 · 변동원가 · 운송비 · 공헌이익 열이 있는 RAW예요. 다시 넣으면 통째로 바뀌어요.</p>
     <div class="inputs">
       <div class="zone" id="paste" tabindex="0"><b>여기를 클릭하고 Ctrl+V</b><span>엑셀에서 제목 행까지 복사해 붙여넣기</span></div>
       <div class="zone" id="drop"><b>엑셀 파일 끌어다 놓기</b><span>또는 클릭해서 선택 (xlsx, xls, csv)</span></div>
@@ -106,9 +106,9 @@ tr.amt td.lab{color:var(--ink);font-weight:700}
   <div id="board" class="hide">
     <div class="card">
       <h2>채널별 기준일 · 기대진척율</h2>
-      <div class="filters hide" id="monthBox"><label>월<select id="fMonth"></select></label></div>
+      <div class="filters hide" id="monthBox"><label id="monthLab">월<select id="fMonth"></select></label><label id="periodLab">기간<select id="fPeriod"></select></label></div>
       <div class="days" id="days"></div>
-      <p class="sub" style="margin:10px 0 0">실적이 며칠까지 들어왔는지 채널마다 입력해 주세요. 기대진척율 = 기준일 ÷ 그 달 일수 (참고용, 입력값은 이 브라우저에 저장돼요).</p>
+      <p class="sub" style="margin:10px 0 0">실적이 며칠까지 들어왔는지 채널마다 입력해 주세요. 기대진척율 = 기준일 ÷ 그 달 일수 (참고용, 입력값은 이 브라우저에 저장돼요). 기간(일)을 고르면 기준일은 기간 끝 날짜로 자동으로 채워지고, 전월 비교도 같은 기간끼리 해요. Rolling 행은 일 칸을 비워도 돼요.</p>
       <p class="sub" id="rollNote" style="margin:4px 0 0"></p>
     </div>
 
@@ -196,7 +196,7 @@ async function fileSheets(file){
 // ---------- 양식 해석 ----------
 const MEAS = ['sales', 'dc', 'inc', 'sga', 'cost', 'cogs', 'ship', 'cm'];
 const LABEL = {sales: '총매출', dc: 'DC', inc: '장려금', sga: '판관비', cost: '비용', cogs: '변동원가', ship: '운송비', cm: '공헌이익'};
-const HEAD = {'구분': 'kind', '월': 'month', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor', 'sku코드': 'sku', 'sku': 'sku', '제품코드': 'sku', '품목코드': 'sku', '상품코드': 'sku', '자재코드': 'sku', 'sku명': 'skuName', '제품명': 'skuName', '품목명': 'skuName', '상품명': 'skuName', '자재명': 'skuName',
+const HEAD = {'구분': 'kind', '월': 'month', '일': 'period', '기간': 'period', '경로구분': 'route', '팀구분': 'team', '경로세부1': 'ch', '채널': 'ch', '대카테고리': 'major', '대분류': 'major', '소카테고리': 'minor', '소분류': 'minor', 'sku코드': 'sku', 'sku': 'sku', '제품코드': 'sku', '품목코드': 'sku', '상품코드': 'sku', '자재코드': 'sku', 'sku명': 'skuName', '제품명': 'skuName', '품목명': 'skuName', '상품명': 'skuName', '자재명': 'skuName',
   '총매출': 'sales', 'dc': 'dc', '장려금': 'inc', '판관비': 'sga', '비용': 'cost', '변동원가': 'cogs', '운송비': 'ship', '공헌이익': 'cm'};
 function headerMap(row){
   const m = {};
@@ -225,6 +225,11 @@ function monthLabel(v){
   const m = s.match(/^(\d{1,2})(월)?$/);
   return m ? Number(m[1]) + '월' : s;
 }
+// 기간(일) 예: '1일~15일' → 공백 제거
+const periodLabel = v => text(v).replace(/\s+/g, '');
+const periodEnd = s => { const m = text(s).match(/(\d{1,2})\D*$/); return m ? Number(m[1]) : null; };
+const periodStart = s => { const m = text(s).match(/^\D*(\d{1,2})/); return m ? Number(m[1]) : 0; };
+const sortPeriods = ps => ps.sort((a, b) => (periodEnd(a) || 0) - (periodEnd(b) || 0) || periodStart(a) - periodStart(b) || ko(a, b));
 const zero = () => Object.fromEntries(MEAS.map(k => [k, 0]));
 function parseRaw(sheets){
   const warnings = [], items = new Map(), unknown = new Map();
@@ -247,8 +252,8 @@ function parseRaw(sheets){
       const kt = text(r[map.kind]), kind = kindOfRow(kt);
       if (!kind){ if (kt && !/합계|총계/.test(kt)) unknown.set(kt, (unknown.get(kt) || 0) + 1); continue; }
       const g = k => map[k] == null ? '' : text(r[map[k]]);
-      const it = {m: monthLabel(map.month == null ? '' : r[map.month]), route: g('route'), team: g('team'), ch: g('ch') || '(채널 없음)', major: g('major') || '(대카테고리 없음)', minor: g('minor') || '(소카테고리 없음)', sku: g('sku'), skuName: g('skuName')};
-      const key = [it.m, it.route, it.team, it.ch, it.major, it.minor, it.sku, it.skuName].join('\u0001');
+      const it = {m: monthLabel(map.month == null ? '' : r[map.month]), d: map.period == null ? '' : periodLabel(r[map.period]), route: g('route'), team: g('team'), ch: g('ch') || '(채널 없음)', major: g('major') || '(대카테고리 없음)', minor: g('minor') || '(소카테고리 없음)', sku: g('sku'), skuName: g('skuName')};
+      const key = [it.m, it.d, it.route, it.team, it.ch, it.major, it.minor, it.sku, it.skuName].join('\u0001');
       let cur = items.get(key);
       if (!cur){ cur = {...it, roll: null, alt: null, act: null}; items.set(key, cur); }
       const o = cur[kind] || (cur[kind] = zero());
@@ -270,11 +275,33 @@ function parseRaw(sheets){
 }
 
 // ---------- 계산 ----------
-const st = {data: null, month: null, promo: null};
+const st = {data: null, month: null, period: '', promo: null};
 function monthsOf(d){ return [...new Set(d.items.map(i => i.m))].sort((a, b) => (parseInt(a) || 99) - (parseInt(b) || 99) || ko(a, b)); }
 // 그 달 자료: 채널에 Rolling(변형)이 있으면 그 채널은 변형 값을 Rolling으로 사용
-function monthRows(m = st.month){
-  const list = st.data.items.filter(i => i.m === m);
+const pd = i => i.d || '';
+// 그 달의 기간 목록 (실적·예측 행 기준)
+function periodsOf(m){ return sortPeriods([...new Set(st.data.items.filter(i => i.m === m && i.act).map(pd))]); }
+// 구분별로 쓸 기간: 고른 기간 → 기간 없는 행 → 가장 늦은 기간 (Rolling은 기간 없이 한 번만 넣어도 돼요)
+function srcPeriod(all, kind, p){
+  if (all.some(i => pd(i) === p && i[kind])) return p;
+  if (all.some(i => pd(i) === '' && i[kind])) return '';
+  const ps = sortPeriods([...new Set(all.filter(i => i[kind]).map(pd))]);
+  return ps.length ? ps[ps.length - 1] : p;
+}
+function monthRows(m = st.month, p = st.period){
+  const all = st.data.items.filter(i => i.m === m), src = {}, merged = new Map();
+  for (const k of ['roll', 'alt', 'act']) src[k] = srcPeriod(all, k, p || '');
+  for (const i of all){
+    const k = [i.route, i.team, i.ch, i.major, i.minor, i.sku, i.skuName].join('\u0001');
+    for (const kind of ['roll', 'alt', 'act']){
+      if (!i[kind] || pd(i) !== src[kind]) continue;
+      let o = merged.get(k);
+      if (!o){ o = {...i, roll: null, alt: null, act: null}; merged.set(k, o); }
+      const t = o[kind] || (o[kind] = zero());
+      for (const x of MEAS) t[x] += i[kind][x];
+    }
+  }
+  const list = [...merged.values()];
   const altCh = new Set(list.filter(i => i.alt).map(i => i.ch));
   const Z = zero();
   return {altCh, rows: list.map(i => ({team: i.team || '-', ch: i.ch, major: i.major, minor: i.minor, sku: i.sku || '', skuName: i.skuName || '', R: (altCh.has(i.ch) ? i.alt : i.roll) || Z, A: i.act || Z}))};
@@ -303,6 +330,13 @@ function scopeCells(tr, chLab, teamLab, span){
 const DAY_KEY = 'progress-base-day-v1';
 function loadDays(){ try { return JSON.parse(localStorage.getItem(DAY_KEY) || '{}') || {}; } catch { return {}; } }
 function saveDay(k, v){ try { const d = loadDays(); if (v) d[k] = v; else delete d[k]; localStorage.setItem(DAY_KEY, JSON.stringify(d)); } catch {} }
+const dayKey = ch => st.period ? `${st.month}|${st.period}|${ch}` : `${st.month}|${ch}`;
+function dayOf(ch){
+  const v = loadDays()[dayKey(ch)], dim = daysInMonth(st.month);
+  if (v >= 1 && v <= dim) return v;
+  const e = periodEnd(st.period);
+  return e >= 1 && e <= dim ? e : null;
+}
 function daysInMonth(m){
   const n = parseInt(m);
   if (!(n >= 1 && n <= 12)) return 30;
@@ -312,10 +346,10 @@ function renderDays(rows, altCh){
   const box = $('days'); box.replaceChildren();
   const saved = loadDays(), dim = daysInMonth(st.month), mNum = parseInt(st.month);
   for (const ch of channels(rows)){
-    const key = st.month + '|' + ch;
+    const key = dayKey(ch);
     const lab = el('label', null, 'day'), inp = el('input'), exp = el('em');
     inp.type = 'number'; inp.min = 1; inp.max = dim; inp.placeholder = '일';
-    inp.value = saved[key] || '';
+    inp.value = dayOf(ch) || '';
     const upd = () => { const v = parseInt(inp.value); exp.textContent = v >= 1 && v <= dim ? '기대 ' + fmtPct(v / dim) : '기대 –'; };
     inp.oninput = () => { const v = parseInt(inp.value); saveDay(key, v >= 1 && v <= dim ? v : null); upd(); renderDiag(monthRows().rows); if (st.promo) renderPromo(); };
     upd();
@@ -442,7 +476,7 @@ function upTo80(list, val){
 const shortName = s => text(s).replace(/^[A-Za-z]{1,3}\d*\.\s*/, '') || text(s);
 const mil = v => Math.round(v / 1e6).toLocaleString('ko-KR') + '백만';
 function expOf(ch){
-  const day = loadDays()[st.month + '|' + ch], dim = daysInMonth(st.month);
+  const day = dayOf(ch), dim = daysInMonth(st.month);
   return day >= 1 && day <= dim ? {day, exp: day / dim} : null;
 }
 function skuList(cr){
@@ -479,8 +513,8 @@ const mixLine = (x, nm) => `${x.s.name}(${nm} ${fmtPct(x.rate)}) 매출비중 ${
 function prevMonthLabel(m){ const n = parseInt(m); return n >= 1 && n <= 12 ? (n === 1 ? 12 : n - 1) + '월' : null; }
 function prevRows(){
   const pm = prevMonthLabel(st.month);
-  if (!pm || !st.data.items.some(i => i.m === pm)) return null;
-  return {pm, rows: monthRows(pm).rows};
+  if (!pm || !st.data.items.some(i => i.m === pm && i.act && (!st.period || pd(i) === st.period))) return null;
+  return {pm: pm + (st.period ? ' ' + st.period : ''), rows: monthRows(pm).rows};
 }
 const m0 = v => { const n = Math.round(v / 1e6); return (n === 0 ? 0 : n).toLocaleString('ko-KR'); };
 const updown = v => v > 0 ? '증가' : v < 0 ? '감소' : '변화 없음';
@@ -592,7 +626,7 @@ function diagnose(rows, ch){
       L.push(`   · ${shortName(g.n)}(${info(g.s)})` + (mins.length ? ' > ' + mins.map(m => `${shortName(m.n)}(${info(m.s)})`).join(', ') : ''));
     }
   } else L.push(' - 기준일을 입력하면 월말 예상치를 계산해요');
-  const pv = prevRows(), all = withMom(L, momLines(cr, pv && pv.rows.filter(r => r.ch === ch), pv ? pv.pm : prevMonthLabel(st.month)));
+  const pv = prevRows(), all = withMom(L, momLines(cr, pv && pv.rows.filter(r => r.ch === ch), pv ? pv.pm : prevMonthLabel(st.month) + (st.period ? ' ' + st.period : '')));
   return {ch, head, sub, text: `■ ${head} · ${sub}\n` + all.join('\n')};
 }
 // 팀 요약 진단: 채널별 진단의 핵심만
@@ -647,7 +681,7 @@ function teamDiagnose(rows, team){
     const pS = withE.reduce((s, c) => s + c.A.sales / c.e.exp - c.R.sales, 0), pC = withE.reduce((s, c) => s + c.A.cm / c.e.exp - c.R.cm, 0);
     L.push(` - 현추세 감안시 매출 ${mil(Math.abs(pS))} ${pS >= 0 ? '초과' : '부족'}, 공헌이익 ${mil(Math.abs(pC))} ${pC >= 0 ? '초과' : '부족'} 예상` + (noE.length ? ` (기준일 미입력 채널 제외)` : ''));
   }
-  const pv = prevRows(), all = withMom(L, momLines(tr, pv && pv.rows.filter(r => r.team === team), pv ? pv.pm : prevMonthLabel(st.month)));
+  const pv = prevRows(), all = withMom(L, momLines(tr, pv && pv.rows.filter(r => r.team === team), pv ? pv.pm : prevMonthLabel(st.month) + (st.period ? ' ' + st.period : '')));
   return {team, head, sub, text: `■ ${head} · ${sub}\n` + all.join('\n')};
 }
 function teamTexts(rows){
@@ -702,7 +736,14 @@ function render(full){
   const fm = $('fMonth');
   fm.replaceChildren(...months.map(m => { const o = el('option', m); o.value = m; return o; }));
   fm.value = st.month;
-  $('monthBox').classList.toggle('hide', months.length < 2);
+  const periods = periodsOf(st.month);
+  if (!periods.includes(st.period)) st.period = periods.length ? periods[periods.length - 1] : '';
+  const fp = $('fPeriod');
+  fp.replaceChildren(...periods.map(x => { const o = el('option', x || '(기간 없음)'); o.value = x; return o; }));
+  fp.value = st.period;
+  $('monthLab').classList.toggle('hide', months.length < 2);
+  $('periodLab').classList.toggle('hide', periods.length < 2 && !st.period);
+  $('monthBox').classList.toggle('hide', months.length < 2 && periods.length < 2 && !st.period);
   const {rows, altCh} = monthRows();
   refreshFilters(rows);
   if (full !== false) renderDays(rows, altCh);
@@ -760,7 +801,7 @@ async function load(getSheets, name){
   try {
     const p = parseRaw(await getSheets());
     st.data = {items: p.items, rowsRead: p.rowsRead, name, savedAt: Date.now()};
-    st.month = null;
+    st.month = null; st.period = '';
     const saved = await dbPut(st.data);
     showMsgs([...p.warnings, ...checkCoverage(st.data)], [], `${p.rowsRead.toLocaleString()}행을 읽었어요.${saved ? '' : ' 이 브라우저에는 저장하지 못해서 새로고침하면 다시 넣어야 해요.'}`);
     showInfo(); render();
@@ -880,7 +921,7 @@ function renderPromo(){
   $('pInfo').textContent = has ? `저장된 프로모션: ${st.promo.name} · 품목 ${st.promo.items.length.toLocaleString()}행 · 채널 ${pChannels().length}곳 · ${new Date(st.promo.savedAt).toLocaleString('ko-KR')}` : '아직 프로모션 파일이 없어요.';
   $('pClear').classList.toggle('hide', !has);
   if (!has) return;
-  const per = loadPeriods(), days = loadDays(), tb = $('pTable');
+  const per = loadPeriods(), tb = $('pTable');
   tb.replaceChildren();
   const hr = el('tr');
   ['채널(LV3명)', '진척 채널', '품목', '행사 품목', '정상가 수량', '행사1차 수량', '행사2차 수량', '1차 시작일', '1차 종료일', '2차 시작일', '2차 종료일', '기준일', '물량 기준 기대진척율', '일수 기준 기대진척율']
@@ -888,7 +929,7 @@ function renderPromo(){
   tb.append(hr);
   for (const ch of pChannels()){
     const its = st.promo.items.filter(i => i.ch === ch), q = [0, 1, 2].map(k => its.reduce((s, i) => s + i.q[k], 0));
-    const mc = matchCh(ch), p = per[ch] || {}, day = mc ? days[st.month + '|' + mc] : null;
+    const mc = matchCh(ch), p = per[ch] || {}, day = mc ? dayOf(mc) : null;
     const tr = el('tr');
     const num = v => el('td', fmtAmt(v), 'n');
     tr.append(el('td', ch), el('td', mc || '–'), num(its.length), num(its.filter(i => i.q[1] || i.q[2]).length), num(q[0]), num(q[1]), num(q[2]));
@@ -960,6 +1001,7 @@ window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => e.preventDefault());
 $('clearData').onclick = async () => { if (!confirm('저장된 자료를 지울까요?')) return; await dbClear(); st.data = null; showInfo(); $('loadMsg').replaceChildren(); render(); };
 $('fMonth').onchange = () => { st.month = $('fMonth').value; render(); };
+$('fPeriod').onchange = () => { st.period = $('fPeriod').value; render(); };
 ['sTeam', 'sCh', 'dTeam', 'dCh', 'dMajor', 'dMinor', 'dSku', 'gTeam', 'gCh'].forEach(id => { $(id).onchange = () => render(false); });
 $('copySum').onclick = () => { if (st.data) copyText(summaryTsv(monthRows().rows), $('copySum')); };
 $('copyDet').onclick = () => { if (st.data) copyText(detailTsv(monthRows().rows), $('copyDet')); };
