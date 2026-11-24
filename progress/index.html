@@ -516,6 +516,13 @@ function prevRows(){
   if (!pm || !st.data.items.some(i => i.m === pm && i.act && (!st.period || pd(i) === st.period))) return null;
   return {pm: pm + (st.period ? ' ' + st.period : ''), rows: monthRows(pm).rows};
 }
+// 백만, 소수 1자리 (예: 1,234.5)
+const m1 = v => { const n = Math.round(v / 1e5) / 10; return (n === 0 ? 0 : n).toLocaleString('ko-KR', {minimumFractionDigits: 1, maximumFractionDigits: 1}); };
+// 現 추세 월말 예상 = 실적 ÷ 기대진척율, 달성율 = 예상 ÷ Rolling, Gap = 예상 − Rolling
+function trendLine(pS, pC, R){
+  const ach = (a, r) => r ? fmtPct(a / r) : '–';
+  return ` - Rolling 대비 부족 (Gap(백만)) : 現 추세예상 매출 ${m1(pS)} / 공헌이익 ${m1(pC)} / 달성율 매출 ${ach(pS, R.sales)}·공헌이익 ${ach(pC, R.cm)} (매출 ${m1(pS - R.sales)}, 공헌이익 ${m1(pC - R.cm)})`;
+}
 const m0 = v => { const n = Math.round(v / 1e6); return (n === 0 ? 0 : n).toLocaleString('ko-KR'); };
 const updown = v => v > 0 ? '증가' : v < 0 ? '감소' : '변화 없음';
 const pctTxt = v => { const s = (v * 100).toFixed(1); return (s === '-0.0' ? '0.0' : s) + '%'; };
@@ -615,6 +622,7 @@ function diagnose(rows, ch){
   if (e){
     const dS = T.A.sales / e.exp - T.R.sales, dC = T.A.cm / e.exp - T.R.cm;
     L.push(` - 현추세 감안시 매출 ${mil(Math.abs(dS))} ${dS >= 0 ? '초과' : '부족'} 달성 예상, 공헌이익 ${mil(Math.abs(dC))} ${dC >= 0 ? '초과' : '부족'} 예상`);
+    L.push(trendLine(T.A.sales / e.exp, T.A.cm / e.exp, T.R));
     // 매출 부족액(Rolling × 기대진척율 − 실적)이 큰 대CAT 3개 > 소CAT 3개
     const sf = s => s.R.sales * e.exp - s.A.sales;
     const info = s => `매출 부족 ${m0(sf(s))}, 공헌이익 부족 ${m0(s.R.cm * e.exp - s.A.cm)}, 이익율 ${fmtPct(rate(s.R, 'cm'))}, 공헌이익 진척 ${s.R.cm ? fmtPct(s.A.cm / s.R.cm) : '–'}`;
@@ -680,6 +688,8 @@ function teamDiagnose(rows, team){
   if (withE.length){
     const pS = withE.reduce((s, c) => s + c.A.sales / c.e.exp - c.R.sales, 0), pC = withE.reduce((s, c) => s + c.A.cm / c.e.exp - c.R.cm, 0);
     L.push(` - 현추세 감안시 매출 ${mil(Math.abs(pS))} ${pS >= 0 ? '초과' : '부족'}, 공헌이익 ${mil(Math.abs(pC))} ${pC >= 0 ? '초과' : '부족'} 예상` + (noE.length ? ` (기준일 미입력 채널 제외)` : ''));
+    const RS = withE.reduce((s, c) => s + c.R.sales, 0), RC = withE.reduce((s, c) => s + c.R.cm, 0);
+    L.push(trendLine(pS + RS, pC + RC, {sales: RS, cm: RC}));
   }
   const pv = prevRows(), all = withMom(L, momLines(tr, pv && pv.rows.filter(r => r.team === team), pv ? pv.pm : prevMonthLabel(st.month) + (st.period ? ' ' + st.period : '')));
   return {team, head, sub, text: `■ ${head} · ${sub}\n` + all.join('\n')};
